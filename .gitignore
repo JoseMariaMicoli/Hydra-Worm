@@ -1,23 +1,26 @@
-# --- Rust Build Artifacts ---
-/target/
+# --- Hydra-Worm Research Project Gitignore ---
+
+# 1. Rust Artifacts (hydra-agent)
+/hydra-agent/target/
+/hydra-agent/Cargo.lock
 **/*.rs.bk
-Cargo.lock
 
-# --- IDE & OS Specific ---
-.idea/
-.vscode/
+# 2. Go Artifacts (hydra-c2)
+/hydra-c2/hydra-c2       # The compiled binary
+/hydra-c2/hydra-c2-bin   # Alternative binary names
+/hydra-c2/go.sum         # Optional: Some keep this, but for R&D we can ignore if deps change fast
+# /hydra-c2/.env         # Secret environment variables
+
+# 3. Development & OS Garbage
 .DS_Store
-*.swp
-*.swo
+.vscode/
+.idea/
+*.log
+*.tmp
 
-# --- Hydra Specific Secrets ---
-# Ensure any local API keys or config files are never committed
-.env
-config.local.toml
-auth_tokens.txt
-
-# --- Binaries ---
-*.exe
-*.dll
-*.so
-*.dylib
+# 4. Security Research Specifics
+# Ignore any harvested artifacts during testing
+/artifacts/
+/loot/
+passwords.txt
+targets.json

