@@ -22,21 +22,21 @@
 | Phase | Sub-Phase | Focus / Technical Deliverable |
 | --- | --- | --- |
 | **Sprint 1: Stealth** | 1.1 | **Transport Abstraction:** Rust Traits for hot-swappable communication modules. |
-|  | 1.2 | **Temporal Evasion:** NHPP (Non-Homogeneous Poisson Process) jitter engine. |
-|  | 1.3 | **C2 Bootstrap:** Go-based Gin/Echo backend with TLS 1.3 and mutual auth. |
-|  | 1.4 | **Malleable Profiles:** Dynamic HTTP/2 header and JA3/S fingerprint randomization. |
+| [x] | 1.2 | **Temporal Evasion:** NHPP (Non-Homogeneous Poisson Process) jitter engine. |
+| [ ] | 1.3 | **C2 Bootstrap:** Go-based Gin/Echo backend with TLS 1.3 and mutual auth. |
+| [ ] | 1.4 | **Malleable Profiles:** Dynamic HTTP/2 header and JA3/S fingerprint randomization. |
 | **Sprint 2: Recon** | 2.1 | **Artifact Harvesting:** Parsing `known_hosts`, RDP `MRU`, and `bash_history`. |
-|  | 2.2 | **Environment Context:** IMDSv2 (AWS/Azure/GCP) and Container (K8s/Docker) detection. |
-|  | 2.3 | **EDR/XDR Fingerprinting:** Enumerating drivers and hooked APIs for evasion logic. |
-|  | 2.4 | **Structured Telemetry:** Protobuf-encoded reporting for minimal network signature. |
+| [ ] | 2.2 | **Environment Context:** IMDSv2 (AWS/Azure/GCP) and Container (K8s/Docker) detection. |
+| [ ] | 2.3 | **EDR/XDR Fingerprinting:** Enumerating drivers and hooked APIs for evasion logic. |
+| [ ] | 2.4 | **Structured Telemetry:** Protobuf-encoded reporting for minimal network signature. |
 | **Sprint 3: Propagation** | 3.1 | **Credential Management:** Secure handling and reuse of captured NTLM/Kerberos/SSH tokens. |
-|  | 3.2 | **P2P Discovery:** mDNS/UDP/LLMNR gossip mesh for internal peer discovery. |
-|  | 3.3 | **Infection Engine:** Multithreaded propagation via SMB, SSH, and WMI mocks. |
-|  | 3.4 | **Safety Throttle:** Propagation rate-limiting and global "Kill-Switch" broadcast. |
+| [ ] | 3.2 | **P2P Discovery:** mDNS/UDP/LLMNR gossip mesh for internal peer discovery. |
+| [ ] | 3.3 | **Infection Engine:** Multithreaded propagation via SMB, SSH, and WMI mocks. |
+| [ ] | 3.4 | **Safety Throttle:** Propagation rate-limiting and global "Kill-Switch" broadcast. |
 | **Sprint 4: DFIR** | 4.1 | **LotL Persistence:** Implementation via WMI Event Subs, Systemd timers, and GPO. |
-|  | 4.2 | **Syscall Evasion:** Refactoring core logic for Direct/Indirect Syscalls (bypassing `ntdll`). |
-|  | 4.3 | **Atomic Destruction:** Self-deletion logic including secure file wiping ( method). |
-|  | 4.4 | **CLI Completion:** Integration of help-autocomplete, shell commands, and README update. |
+| [ ] | 4.2 | **Syscall Evasion:** Refactoring core logic for Direct/Indirect Syscalls (bypassing `ntdll`). |
+| [ ] | 4.3 | **Atomic Destruction:** Self-deletion logic including secure file wiping ( method). |
+| [ ] | 4.4 | **CLI Completion:** Integration of help-autocomplete, shell commands, and README update. |
 
 ---
 
