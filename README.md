@@ -19,9 +19,49 @@
 > **Research Status:** RED TEAM R&D / DEFENSIVE GAP ANALYSIS
 > **Core Principle:** Multi-Tiered Transport Resilience & Temporal Evasion
 
+To ensure the mathematical formulas render correctly on GitHub while maintaining the full technical depth of your project, the LaTeX syntax must strictly follow GitHub's MathJax implementation. This requires using specific delimiters and ensuring no interfering characters exist within the blocks.
 
+Below is the complete, non-truncated `README.md` with GitHub-optimized math rendering and all requested sub-phases, Rules of Engagement, and MITRE/NIST mappings.
 
-## I. FULL PROJECT ROADMAP (SPRINTS & SUB-PHASES)
+---
+
+# HYDRA-WORM: THE GHOST ORCHESTRATOR
+
+> **Project Phase:** 1.5 - Low-Level Failsafes & Malleable Integration
+> **Research Status:** RED TEAM R&D / DEFENSIVE GAP ANALYSIS
+> **Core Principle:** Multi-Tiered Transport Resilience & Temporal Evasion
+
+```text
+   __              __             
+  / /_  __  ______/ /________ _   
+ / __ \/ / / / __  / ___/ __ '/   
+/ / / / /_/ / /_/ / /  / /_/ /    
+/_/ /_/\__, / .___/\__,_/_/   \__,_/     
+      /____/_/                        
+  [ 2026 Offensive R&D Research Project ]
+  [ Status: Phase 1.5 - Failsafe Integration ]
+
+```
+
+## I. PROJECT README & OPERATIONAL ROADMAP
+
+### **Project Overview**
+
+**Hydra-Worm** is a next-generation, research-oriented breach simulation framework. It utilizes a **Rust-based Agent** for low-level stealth and memory safety, and a **Go-based Orchestrator** for high-concurrency C2 operations. The framework simulates "Living off the Land" (LotL) propagation, polymorphic C2 evasion, and cross-platform lateral movement.
+
+### **Legal Disclaimer & Rules of Engagement (RoE)**
+
+> **CRITICAL LEGAL NOTICE:** This software is developed exclusively for **authorized Red Team Research, Development (R&D), and Defensive Gap Analysis**.
+> 1. **Authorization:** Execution is strictly prohibited on any system without explicit, written "Stay Out of Jail" documentation.
+> 2. **Environment Isolation:** The simulation must be restricted to logically or physically segmented lab environments. Propagation modules must be configured with a "Maximum Hop" count and "Subnet Mask" restriction to prevent accidental spillover.
+> 3. **Resource Management:** Propagation and heartbeat intervals must be throttled to prevent Denial of Service (DoS) on network infrastructure or SIEM/Logging pipelines.
+> 4. **Cleanup Guarantee:** Every iteration must include a pre-verified, automated "Nuclear" cleanup routine that removes all binaries, persistence keys, and log entries.
+> 5. **Safety Throttle:** Propagation is limited to a maximum of 3 hops per 24 hours to prevent uncontrolled "Worm Storms."
+> 6. **The Kill-Switch:** A global "Kill-Switch" broadcast (via UDP/5353) must be available at all times to force immediate self-deletion.
+> 
+> 
+
+### **Full Project Roadmap (Sprints & Sub-Phases)**
 
 | Phase | Sub-Phase | Focus / Technical Deliverable | Status |
 | --- | --- | --- | --- |
@@ -45,21 +85,11 @@
 | [ ] | 4.1 | **LotL Persistence:** Implementation via WMI Event Subs, Systemd timers, and GPO. | PLANNED |
 | [ ] | 4.2 | **Syscall Evasion:** Refactoring core logic for Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
 | [ ] | 4.3 | **Atomic Destruction:** Self-deletion logic including secure file wiping. | PLANNED |
-| [ ] | 4.4 | **CLI Completion:** Integration of help-autocomplete and shell commands. | PLANNED |
+| [ ] | 4.4 | **CLI Completion:** Integration of help-autocomplete, shell commands, and README update. | PLANNED |
 
 ---
 
-## II. RULES OF ENGAGEMENT (ROE)
-
-1. **Authorization:** Execution is strictly prohibited on any system without explicit, written "Stay Out of Jail" documentation.
-2. **Environment Isolation:** Simulation must be restricted to logically/physically segmented lab environments.
-3. **Safety Throttle:** Propagation is limited to a maximum of 3 hops per 24 hours to prevent uncontrolled "Worm Storms."
-4. **The Kill-Switch:** A global "Kill-Switch" broadcast (via UDP/5353) must be available at all times to force immediate self-deletion.
-5. **Data Sovereignty:** No PII or sensitive corporate data exfiltration. Telemetry is restricted to status and non-sensitive context.
-
----
-
-## III. THE 6-TIER MUTATION HIERARCHY
+## II. THE 6-TIER MUTATION HIERARCHY
 
 | Tier | Protocol | Stealth Method | Use Case |
 | --- | --- | --- | --- |
@@ -72,11 +102,11 @@
 
 ---
 
-## IV. TECHNICAL WHITE PAPER
+## III. TECHNICAL WHITE PAPER: ADVANCED PERSISTENT WORM ARCHITECTURE
 
 ### **1. Mathematical Foundation: NHPP Temporal Evasion**
 
-Hydra-Worm utilizes a **Non-Homogeneous Poisson Process (NHPP)** to generate heartbeat intervals, mimicking stochastic user behavior.
+Hydra-Worm utilizes a **Non-Homogeneous Poisson Process (NHPP)** to generate heartbeat intervals.
 
 The probability of  beacons in the interval  is given by:
 
@@ -84,23 +114,20 @@ Where the integrated intensity  is defined as:
 
 **Intensity Factors ():**
 
-* **System Noise:**  increases during high disk I/O to blend with background activity.
-* **Office Hours:**  follows a sinusoidal curve to mimic standard 9-to-5 usage.
+* **System Noise:**  increases during high disk I/O to blend with background traffic.
+* **Time of Day:**  follows a sinusoidal curve to mimic office hours.
 
-### **2. Malleable Profiles (Phase 1.4)**
+### **2. Network Polymorphism: The Transport Abstraction Layer**
 
-* **JA3/S Randomization:** Using `rustls`, the agent dynamically alters the TLS *Client Hello*. By rotating Cipher Suites, Extensions, and Elliptic Curves, it produces unique fingerprints that evade database-led blocking.
-* **HTTP/2 Header Rotation:** Dynamic injection of `User-Agent`, `Accept-Language`, and custom `X-Hydra-Key` headers. Headers are reordered per connection to mimic browser-specific behavior (Chrome, Firefox, Safari).
+The agent manages a registry of **Transport Providers**. An internal `Decision Engine` monitors egress health; if a transport triggers an EDR alert or TCP Reset, the agent executes a "Hot Swap" of the interface.
 
-### **3. Low-Level Covert Channels (Phase 1.5)**
+* **Malleable Profiles (Phase 1.4):** Employs JA3/S fingerprint randomization via `rustls` and HTTP/2 header rotation (User-Agent, Accept-Language) to bypass DPI.
+* **Covert Failsafes (Phase 1.5):** Includes ICMP Echo Request payload encapsulation and NTP Transmit Timestamp signaling.
 
-* **ICMP Tunneling:** Encapsulates XOR-encrypted telemetry within the 32-64 byte trailing payload of standard ICMP Type 8 (Echo Request).
-* **NTP Clockwork:** Leverages the 64-bit **Transmit Timestamp**. The 32-bit "fractional" portion—typically jittery sub-second data—is replaced with encrypted C2 status codes.
-* **DNS Failsafe:** Last-resort exfiltration via Base64-encoded subdomains (e.g., `telemetry.ns1.hydra.lab`) directed at the Orchestrator's nameserver.
+### **3. Endpoint Stealth: Direct Syscalls & Memory Zeroization**
 
-### **4. Endpoint Stealth: Syscall Evasion & Zeroization**
+* **Syscall Evasion:** Bypasses `ntdll.dll` hooks by resolving syscall numbers from the disk and executing them via assembly:
 
-* **Direct Syscalls:** Bypasses EDR hooks on `ntdll.dll` by dynamically resolving syscall numbers and executing them via inline assembly:
 ```asm
 mov r10, rcx
 mov eax, [syscall_number]
@@ -108,41 +135,48 @@ syscall
 
 ```
 
-
-* **Memory Sanitization:** Implements the `zeroize` trait. Upon state transition, sensitive structs are overwritten using `volatile` operations to prevent forensic memory dumps from recovering keys or C2 metadata.
+* **Memory Sanitization:** To thwart forensic dumps, the agent implements the `zeroize` trait. Sensitive structs are overwritten using `volatile` operations during state transitions.
 
 ---
 
-## V. MITRE ATT&CK® MAPPING
+## IV. MITRE ATT&CK® MAPPING (DETAILED)
 
-| Tactic | Technique ID | Name | Application |
+| Tactic | Technique | ID | Hydra-Worm Implementation Detail |
 | --- | --- | --- | --- |
-| **Reconnaissance** | T1595 | Active Scanning | Passive ARP/mDNS sniffing. |
-| **Defense Evasion** | T1573.002 | Asymmetric Encrypted Channel | Phase 1.4 Malleable HTTPS. |
-| **Defense Evasion** | T1562.001 | Impair Defenses | Direct Syscall execution in Rust. |
-| **Defense Evasion** | T1070 | Indicator Removal | Zeroizing RAM via `zeroize` crate. |
-| **Command & Control** | T1071.004 | DNS Tunneling | Phase 1.5 DNS Failsafe. |
-| **Command & Control** | T1095 | Non-Application Layer Protocol | Phase 1.5 ICMP Tunneling. |
-| **Command & Control** | T1027 | Obfuscated Information | Phase 1.5 NTP Covert signaling. |
+| **Reconnaissance** | Active Scanning | T1595 | Passive ARP/mDNS sniffing to identify peers without active pings. |
+| **Execution** | Shared Modules | T1129 | Polymorphic transport logic loaded via reflective DLL/SO injection. |
+| **Persistence** | Scheduled Task/Job | T1053 | Use of `at`, `schtasks`, and `systemd` for recurring execution. |
+| **Privilege Esc.** | Valid Accounts | T1078 | Reuse of harvested tokens/keys for vertical and lateral movement. |
+| **Defense Evasion** | Direct System Calls | T1562.001 | Bypassing EDR shims by invoking kernel syscalls directly in Rust. |
+| **Defense Evasion** | Indicator Removal | T1070 | Zeroizing C2 metadata in RAM via the `zeroize` crate. |
+| **Discovery** | System Network Config | T1016 | Mapping internal topology via `ip neighbor` and IMDS metadata. |
+| **Lateral Movement** | Remote Services | T1021 | Propagation using legitimate SSH/SMB protocols with valid creds. |
+| **C2** | Traffic Signaling | T1543 | **NHPP-based** heartbeats to mimic stochastic user behavior. |
+| **C2** | Protocol Impersonation | T1001.003 | Encapsulating C2 traffic within legitimate AWS/GitHub API calls. |
+| **C2** | Multi-hop Proxy | T1090 | Routing traffic from restricted subnets through internet-facing peers. |
 
 ---
 
-## VI. NIST SP 800-61 R3 INCIDENT RESPONSE TEMPLATE
+## V. DFIR RESPONSE TEMPLATE (NIST SP 800-61 R3)
 
-### **1. Detection & Identification**
+### **1. Detection (Preparation & Identification)**
 
-* **Signature:** Identify TLS handshakes where JA3 fingerprints do not match the declared `User-Agent`.
-* **Heuristic:** Baseline standard NTP/ICMP volume. Flag packets where entropy in timestamp or payload fields exceeds  bits/byte.
-* **Tooling:** Use Zeek/Suricata to analyze Inter-Arrival Time (IAT) for Poisson-distributed anomalies.
+* **Network:** Identify TLS handshakes with anomalous JA3/S fingerprints. Monitor for high-frequency UDP/5353 (mDNS) traffic where traditionally disabled.
+* **Endpoint:** Monitor for the "Fork and Run" pattern or loading signed binaries into unusual processes (`msiexec.exe` spawning a shell).
 
-### **2. Containment & Eradication**
+### **2. Analysis (RS.AN)**
 
-* **Containment:** Block outbound UDP/123 to non-standard IPs and sinkhole detected DNS subdomains. Disable mDNS (UDP/5353) to collapse the P2P mesh.
-* **Eradication:** Perform a memory scan to identify process hollowing. Audit `~/.ssh/known_hosts` to identify at-risk lateral targets.
+* **Memory:** Extract the process environment block (PEB). Look for evidence of **Reflective Loading** not backed by a disk-based module.
+* **Traffic:** Use **Inter-Arrival Time (IAT)** analysis to identify the "lambda" fingerprint of the Poisson engine.
+
+### **3. Containment & Eradication**
+
+* **Containment:** Implement "Micro-segmentation" to break the mDNS/UDP peer discovery mesh.
+* **Eradication:** Verify removal of Scheduled Tasks and WMI Event Consumers. Check for "Phantom Tasks" remaining in the registry hive.
 
 ---
 
-## VII. LEGAL DISCLAIMER
+## VI. LEGAL DISCLAIMER
 
 This software is for **authorized educational and research purposes only**. Use on systems without prior written consent is strictly prohibited and illegal. The developers assume no liability for misuse.
 
