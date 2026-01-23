@@ -69,20 +69,29 @@ Hydra-Worm is designed to address the "Observability Gap" in modern SOCs. By dec
 * **The Agent (Rust):** Chosen for zero-runtime overhead and deterministic memory management. Rust allows the implementation of "Unsafe" blocks to perform direct register manipulation and syscalls without the predictability of C-runtime (`msvcrt.dll` or `libc`) signatures.
 * **The Orchestrator (Go):** Utilizes an asynchronous, event-driven model. The C2 backend uses Go's `net/http2` to support long-lived, multiplexed streams, mimicking legitimate modern web application behavior.
 
-### **3. Mathematical Evasion: Temporal Stealth (NHPP)**
+To include the **Non-Homogeneous Poisson Process (NHPP)** equations and descriptions in your `README.md`, you should use a combination of **LaTeX** (supported by GitHub and most Markdown renderers) and structured lists.
 
-Traditional malware uses periodic beacons with a jitter factor (). This is easily identified using **Discrete Fourier Transforms (DFT)**. Hydra-Worm utilizes a **Non-Homogeneous Poisson Process (NHPP)**.
+Since we are following your workflow, you can use the implementation below. After you verify this looks correct, we can move to the next step of updating your actual file.
 
-The probability of  beacons in the interval  is given by:
+---
 
+Since the previous LaTeX formatting might have failed due to how Sublime Text or your specific Markdown plugin handles delimiters, let's use a "bulletproof" version. GitHub and most modern editors prefer the `$$` block for centered math.
 
+Here is the implementation for your `README.md`. I've also included the **integrated intensity** formula which defines .
 
-Where .
+---
 
-The intensity function  is a dynamic variable influenced by:
+### Mathematical Foundation: NHPP
 
-1. **System Noise:**  increases during high disk I/O to blend with background traffic.
-2. **Time of Day:**  follows a sinusoidal curve to mimic office hours.
+The probability of \( n \) beacons in the interval \( (t, t+\tau] \) is:
+
+\[ P[N(t+\tau)-N(t)=n] = \frac{[\Lambda(t,\tau)]^n}{n!} e^{-\Lambda(t,\tau)} \]
+
+Where the intensity \( \Lambda(t,\tau) \) is defined as:
+
+\[ \Lambda(t,\tau) = \int_{t}^{t+\tau} \lambda(s)ds \]
+
+---
 
 ### **4. Network Polymorphism: The Transport Abstraction Layer**
 
