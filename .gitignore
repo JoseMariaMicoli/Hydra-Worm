@@ -1,0 +1,23 @@
+# --- Rust Build Artifacts ---
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# --- IDE & OS Specific ---
+.idea/
+.vscode/
+.DS_Store
+*.swp
+*.swo
+
+# --- Hydra Specific Secrets ---
+# Ensure any local API keys or config files are never committed
+.env
+config.local.toml
+auth_tokens.txt
+
+# --- Binaries ---
+*.exe
+*.dll
+*.so
+*.dylib
