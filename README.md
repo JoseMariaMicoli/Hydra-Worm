@@ -14,7 +14,7 @@
 
 # HYDRA-WORM: THE GHOST ORCHESTRATOR
 
-> **Project Phase:** 1.5 - Low-Level Failsafes & Malleable Integration
+> **Project Phase:** Artifact Harvesting: Parsing `known_hosts`, RDP `MRU`, and `bash_history`.
 > **Research Status:** RED TEAM R&D / DEFENSIVE GAP ANALYSIS
 > **Core Principle:** Multi-Tiered Transport Resilience & Temporal Evasion
 
@@ -46,9 +46,9 @@
 | [x] | 1.2 | **Temporal Evasion:** NHPP (Non-Homogeneous Poisson Process) jitter engine. | DONE |
 | [x] | 1.3 | **C2 Bootstrap:** Go-based Gin/Echo backend with TLS 1.3 and mutual auth. | DONE |
 | [x] | 1.4 | **Malleable Profiles:** Dynamic HTTP/2 header and JA3/S fingerprint randomization. | DONE |
-| [ ] | 1.5 | **Failsafe Stack:** Integration of ICMP, NTP, and DNS transports. | **ACTIVE** |
+| [x] | 1.5 | **Failsafe Stack:** Integration of ICMP, NTP, and DNS transports. | DONE |
 | **Sprint 2: Recon** |  |  |  |
-| [ ] | 2.1 | **Artifact Harvesting:** Parsing `known_hosts`, RDP `MRU`, and `bash_history`. | PLANNED |
+| [ ] | 2.1 | **Artifact Harvesting:** Parsing `known_hosts`, RDP `MRU`, and `bash_history`. | **ACTIVE** |
 | [ ] | 2.2 | **Environment Context:** IMDSv2 (AWS/Azure/GCP) and Container (K8s/Docker) detection. | PLANNED |
 | [ ] | 2.3 | **EDR/XDR Fingerprinting:** Enumerating drivers and hooked APIs for evasion logic. | PLANNED |
 | [ ] | 2.4 | **Structured Telemetry:** Protobuf-encoded reporting for minimal network signature. | PLANNED |

