@@ -11,13 +11,6 @@
 
       [ 2026 Offensive R&D Research Project ]
 ```
----
-
-To ensure your `README.md` renders perfectly on GitHub while maintaining the technical depth of the **6-Tier Architecture** and **Rules of Engagement (RoE)**, I have updated the file with the ````math` block syntax.
-
-This version uses the file you provided as a base and integrates the full roadmap, the updated hierarchy (adding ICMP, NTP, and DNS), and the non-truncated mathematical formulas.
-
----
 
 # HYDRA-WORM: THE GHOST ORCHESTRATOR
 
@@ -25,17 +18,6 @@ This version uses the file you provided as a base and integrates the full roadma
 > **Research Status:** RED TEAM R&D / DEFENSIVE GAP ANALYSIS
 > **Core Principle:** Multi-Tiered Transport Resilience & Temporal Evasion
 
-```text
-   __              __             
-  / /_  __  ______/ /________ _   
- / __ \/ / / / __  / ___/ __ `/   
-/ / / / /_/ / /_/ / /  / /_/ /    
-/_/ /_/\__, / .___/\__,_/_/   \__,_/     
-      /____/_/                        
-  [ 2026 Offensive R&D Research Project ]
-  [ Status: Phase 1.5 - Failsafe Integration ]
-
-```
 
 ## I. PROJECT README & OPERATIONAL ROADMAP
 
