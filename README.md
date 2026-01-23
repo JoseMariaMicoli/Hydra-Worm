@@ -83,13 +83,21 @@ Here is the implementation for your `README.md`. I've also included the **integr
 
 ### Mathematical Foundation: NHPP
 
-The probability of \( n \) beacons in the interval \( (t, t+\tau] \) is:
+The probability of $n$ beacons in the interval $(t, t+\tau]$ is given by:
 
-\[ P[N(t+\tau)-N(t)=n] = \frac{[\Lambda(t,\tau)]^n}{n!} e^{-\Lambda(t,\tau)} \]
+$$
+P[N(t+\tau)-N(t)=n] = \frac{[\Lambda(t,\tau)]^n}{n!} e^{-\Lambda(t,\tau)}
+$$
 
-Where the intensity \( \Lambda(t,\tau) \) is defined as:
+Where the intensity $\Lambda(t,\tau)$ is defined as:
 
-\[ \Lambda(t,\tau) = \int_{t}^{t+\tau} \lambda(s)ds \]
+$$
+\Lambda(t,\tau) = \int_{t}^{t+\tau} \lambda(s)ds
+$$
+
+**Intensity Factors ($\lambda$):**
+* **System Noise:** $\lambda$ increases during high disk I/O to blend with background traffic.
+* **Time of Day:** $\lambda$ follows a sinusoidal curve to mimic office hours.
 
 ---
 
