@@ -37,7 +37,7 @@ __                  __
 | --- | --- | --- |
 | **Sprint 1: Stealth** 
 | [x] | 1.1 | **Transport Abstraction:** Rust Traits for hot-swappable communication modules. |
-| [ ] | 1.2 | **Temporal Evasion:** NHPP (Non-Homogeneous Poisson Process) jitter engine. |
+| [x] | 1.2 | **Temporal Evasion:** NHPP (Non-Homogeneous Poisson Process) jitter engine. |
 | [ ] | 1.3 | **C2 Bootstrap:** Go-based Gin/Echo backend with TLS 1.3 and mutual auth. |
 | [ ] | 1.4 | **Malleable Profiles:** Dynamic HTTP/2 header and JA3/S fingerprint randomization. |
 | **Sprint 2: Recon** 
