@@ -3,7 +3,9 @@
 # 1. Rust Artifacts (hydra-agent)
 /hydra-agent/target/
 /hydra-agent/Cargo.lock
+hydra-agent/target/debug/hydra-agent
 **/*.rs.bk
+Cargo.lock
 
 # 2. Go Artifacts (hydra-c2)
 /hydra-c2/hydra-c2       # The compiled binary
