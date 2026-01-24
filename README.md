@@ -47,9 +47,9 @@
 | ✅ | 1.3 | **C2 Bootstrap:** Gin backend + **VaporTrace Tactical UI**. | DONE |
 | ✅ | 1.4 | **Malleable Profiles:** Header & JA3/S fingerprint randomization. | DONE |
 | ✅ | 1.5 | **Failsafe Stack:** DNS Tunneling (Case-Fixed) & ICMP/NTP Signaling. | DONE |
-| ✅ | 1.6 | **Sprint 1 Finalize:** Autocomplete, README, and Integrity Commit. | **ACTIVE** |
+| ✅ | 1.6 | **Sprint 1 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 2: Recon** |  |  |  |
-| ⚡ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | PLANNED |
+| ⚡ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | **ACTIVE** |
 | 📡 | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | PLANNED |
 | 🔍 | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | PLANNED |
 | 📦 | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | PLANNED |
