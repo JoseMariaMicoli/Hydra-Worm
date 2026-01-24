@@ -50,8 +50,8 @@
 | ✅ | 1.6 | **Sprint 1 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 2: Recon** |  |  |  |
 | ✅ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | DONE |
-| 📡 | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | **ACTIVE** |
-| 🔍 | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | PLANNED |
+| ✅ | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | DONE |
+| 🔍 | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | **ACTIVE** |
 | 📦 | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | PLANNED |
 | 🛠️ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | PLANNED |
 | **Sprint 3: Propagate** |  |  |  |
@@ -119,56 +119,58 @@ Where the integrated intensity  is defined as:
 * **System Noise:**  increases during high disk I/O to blend with background activity.
 * **Time of Day:**  follows a sinusoidal curve to mimic office hours.
 
-### **2. Network Polymorphism: The Transport Abstraction Layer**
+#### **2. Multi-Tiered Network Polymorphism (Phase 1.1 - 1.5)**
 
-The agent manages a registry of **Transport Providers**. An internal `Decision Engine` monitors egress health; if a transport triggers an EDR alert or TCP Reset, the agent executes a "Hot Swap" of the interface.
+The core architecture rests on a **Transport Abstraction Layer** implemented via Rust Traits, allowing the Agent to execute "Hot Swaps" of its communication protocol upon detecting network interference or egress blocking.
 
-* **Malleable Profiles (Phase 1.4):** Employs JA3/S fingerprint randomization via `rustls` and HTTP/2 header rotation (User-Agent, Accept-Language) to bypass DPI.
-* **Covert Failsafes (Phase 1.5):** Includes ICMP Echo Request payload encapsulation and NTP Transmit Timestamp signaling.
+* **Malleable HTTPS (Phase 1.4):** Employs JA3/S fingerprint randomization and HTTP/2 header rotation. The Agent mimics legitimate browser traffic by rotating User-Agents and including randomized "Hydra-Keys" in the headers.
+* **Covert Failsafes (Phase 1.5):** Includes binary-level signaling via ICMP Echo Request payloads and NTP Transmit Timestamp manipulation for low-bandwidth, high-stealth exfiltration when standard ports are closed.
 
-### **3. Endpoint Stealth: Direct Syscalls & Memory Zeroization**
+#### **3. RFC-Hardened DNS Tunneling (Phase 2.2)**
 
-* **Syscall Evasion:** Bypasses `ntdll.dll` hooks by resolving syscall numbers from the disk-based version of `ntdll.dll` and executing them via assembly:
+Developed as the "Last Resort" transport, the DNS tunnel circumvents Deep Packet Inspection (DPI) by encapsulating telemetry within recursive DNS queries.
 
-```asm
-mov r10, rcx
-mov eax, [syscall_number]
-syscall
+* **Format Integrity:** To bypass RFC 1035 constraints identified in protocol analysis, the Agent fragments Base64 payloads into 60-character labels.
+* **Payload Minification:** Utilizes a single-letter JSON schema (e.g., `"a"` for `agent_id`) to ensure the total query name—including labels and root domain—remains under the strict **255-byte limit**.
+* **Asynchronous Reassembly:** The Go-based Orchestrator transparently strips sub-domain delimiters and re-aligns Base64 padding before unmarshaling the telemetry.
 
-```
+#### **4. Intelligence Reconnaissance & Artifact Harvesting (Phase 2.1)**
 
-* **Memory Sanitization:** To thwart forensic dumps, the agent implements the `zeroize` trait. Sensitive structs are overwritten using `volatile` operations during state transitions.
+The Agent implements a non-intrusive harvesting engine designed to extract lateral movement leads and environment context:
+
+* **Environment DNA:** Implements dual-mode detection for Cloud Instance Metadata Services (IMDSv2) and containerization markers (e.g., `/.dockerenv`).
+* **Credential Mining:** Specifically targets `known_hosts` and `bash_history`. To minimize the exfiltration footprint, the Agent utilizes a sliding-window buffer, capturing only the most recent interactive commands for C2 preview.
+* **Memory Sanitization:** To thwart forensic RAM dumps, all sensitive telemetry structs implement the `zeroize` pattern, ensuring data is wiped from memory immediately after transport.
 
 ---
 
-## IV. MITRE ATT&CK® MAPPING (DETAILED)
+### **IV. MITRE ATT&CK® MAPPING (SYNCHRONIZED)**
 
 | Tactic | Technique | ID | Hydra-Worm Implementation Detail |
 | --- | --- | --- | --- |
-| **Reconnaissance** | Active Scanning | T1595 | Passive ARP/mDNS sniffing to identify peers. |
-| **Execution** | Shared Modules | T1129 | Polymorphic transport logic via reflective loading. |
-| **Defense Evasion** | Direct System Calls | T1562.001 | Bypassing EDR shims via kernel syscalls in Rust. |
-| **Defense Evasion** | Indicator Removal | T1070 | Zeroizing C2 metadata in RAM via `zeroize`. |
-| **Command & Control** | Traffic Signaling | T1543 | **NHPP-based** heartbeats for stochastic behavior. |
-| **Command & Control** | Multi-hop Proxy | T1090 | Routing traffic from restricted subnets through peers. |
+| **Reconnaissance** | Search Victim-Owned Websites | T1594 | Probing Cloud IMDSv2 (169.254.169.254) for instance identity and roles. |
+| **Discovery** | System Information Discovery | T1082 | Extracting Hostname, OS Version, and Kernel details via `sysinfo`. |
+| **Discovery** | File and Directory Discovery | T1083 | Targeting specific paths for exfiltration: `~/.bash_history` and `~/.ssh/known_hosts`. |
+| **Discovery** | Virtualization/Sandbox Evasion | T1497 | Detection of `.dockerenv` to identify containerized constraints. |
+| **Defense Evasion** | Indicator Removal | T1070 | Implementing `zeroize` patterns for in-memory telemetry and sanitizing bash history strings. |
+| **Defense Evasion** | Protocol Impersonation | T1001.003 | Mimicking standard DNS traffic via manual RFC 1035 packet construction. |
+| **Command & Control** | Application Layer Protocol | T1071.004 | DNS Tunneling utilizing 60-character sub-domain labels for Base64 exfiltration. |
+| **Command & Control** | Traffic Signaling | T1543 | **NHPP-based** heartbeats using an exponential distribution to generate stochastic Jitter. |
 
 ---
 
-## V. DFIR RESPONSE TEMPLATE (NIST SP 800-61 R3)
+### **V. DFIR RESPONSE TEMPLATE (NIST SP 800-61 R3)**
 
-### **1. Detection (Preparation & Identification)**
+#### **1. Detection & Analysis (ID.AN)**
 
-* **Network:** Identify TLS handshakes with anomalous JA3/S fingerprints. Monitor for high-frequency UDP/5353 (mDNS) traffic.
-* **Endpoint:** Monitor for the "Fork and Run" pattern or loading signed binaries into unusual processes.
+* **Network Artifacts:** Monitor for anomalous DNS query patterns. Specifically, look for high-frequency queries to a single root domain (e.g., `*.c2.hydra-worm.local`) where sub-domain labels appear to be high-entropy Base64.
+* **Length Analysis:** Alerts should trigger on DNS "Null" queries or "A" records where the total QNAME length approaches the **255-byte limit**.
+* **Endpoint Artifacts:** Audit for unusual process access to `.bash_history` or `.ssh/known_hosts` originating from non-interactive shells or unauthorized binaries.
 
-### **2. Analysis (RS.AN)**
+#### **2. Containment, Eradication, & Recovery (PR.PT)**
 
-* **Memory:** Extract the PEB; look for evidence of **Reflective Loading**.
-* **Traffic:** Use **Inter-Arrival Time (IAT)** analysis to identify the "lambda" fingerprint.
-
-### **3. Containment & Eradication**
-
-* **Containment:** Implement "Micro-segmentation" to break the mDNS/UDP peer discovery.
-* **Eradication:** Verify removal of Scheduled Tasks and WMI Event Consumers. Check for "Phantom Tasks" in the registry.
+* **Network Containment:** Sinkhole the authoritative nameserver for the identified C2 root domain. Implement DNS Response Policy Zones (RPZ) to block the exfiltration path.
+* **Host Containment:** Isolate identified nodes. Because the Agent checks for `.dockerenv`, ensure containment does not inadvertently signal the Agent to hibernate or execute anti-forensic wipes.
+* **Eradication:** Scan for the unique "Hydra-Key" in memory or HTTP headers (if Tier 2 was utilized) to identify active process injections.
 
 ---

