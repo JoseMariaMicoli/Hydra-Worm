@@ -52,18 +52,19 @@
 | ✅ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | DONE |
 | ✅ | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | DONE |
 | ✅ | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | DONE |
-| 📦 | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | **ACTIVE** |
-| 🛠️ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | PLANNED |
+| ❌ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | **ACTIVE** |
+| ❌ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | PLANNED |
 | **Sprint 3: Propagate** |  |  |  |
-| 🔑 | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
-| 🌐 | 3.2 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
-| ☣️ | 3.3 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
-| 🛑 | 3.4 | **Safety Throttle:** Rate-limiting and global "Kill-Switch" broadcast. | PLANNED |
+| ❌ | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
+| ❌ | 3.2 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
+| ❌ | 3.3 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
+| ❌ | 3.4 | **Safety Throttle:** Rate-limiting and global "Kill-Switch" broadcast. | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |
-| ⏳ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO. | PLANNED |
-| 👻 | 4.2 | **Syscall Evasion:** Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
-| 🧨 | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
-| 🏁 | 4.4 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
+| ❌ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO. | PLANNED |
+| ❌ | 4.2 | **Syscall Evasion:** Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
+| ❌ | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
+| ❌ | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
+| ❌ | 4.4 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
 
 ---
 
