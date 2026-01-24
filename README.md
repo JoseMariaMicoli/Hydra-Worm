@@ -51,8 +51,8 @@
 | **Sprint 2: Recon** |  |  |  |
 | ✅ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | DONE |
 | ✅ | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | DONE |
-| 🔍 | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | **ACTIVE** |
-| 📦 | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | PLANNED |
+| ✅ | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | DONE |
+| 📦 | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | **ACTIVE** |
 | 🛠️ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | PLANNED |
 | **Sprint 3: Propagate** |  |  |  |
 | 🔑 | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |

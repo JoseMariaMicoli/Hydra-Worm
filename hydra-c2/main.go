@@ -32,6 +32,7 @@ type Telemetry struct {
 	OS        string  `json:"o"`
 	EnvContext string `json:"e"`
 	ArtifactPreview string `json:"p"`
+	DefenseProfile string `json:"d"`
 }
 
 // RenderVaporBanner displays the header-based banner with the tactical aesthetic
@@ -78,6 +79,7 @@ func LogHeartbeat(transport string, t Telemetry) {
 		pterm.LightMagenta(t.Username),
 		pterm.LightMagenta(t.Hostname),
 		pterm.Yellow(t.EnvContext))
+		pterm.Printf("      └─ %s %s\n", pterm.LightRed("EDR/AV:"), pterm.Yellow(t.DefenseProfile))
 	
 	pterm.Println(header)
 
