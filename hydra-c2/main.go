@@ -33,10 +33,9 @@ type Telemetry struct {
 
 // RenderVaporBanner displays the header-based banner with the tactical aesthetic
 func RenderVaporBanner() {
-	fmt.Print("\033[H\033[2J") // Clear screen
+	fmt.Print("\033[H\033[2J") 
 
-	bannerStyle := pterm.NewStyle(pterm.FgCyan, pterm.Bold)
-	bannerStyle.Println(`
+	pterm.NewStyle(pterm.FgCyan, pterm.Bold).Println(`
            / /_  __  ______  __/ /__________ _   
           / __ \/ / / / __ \/ __  / ___/ __ ` + "`" + `   
          / / / / /_/ / /_/ / /_/ / /  / /_/ /    
@@ -50,18 +49,18 @@ func RenderVaporBanner() {
 
 	pterm.Println(pterm.Cyan("────────────────────────────────────────────────────────────"))
 
-	// Tactical Listener Table including P2P and Cloud API
+	// In a full implementation, these statuses would be tied to global health bools
 	pterm.DefaultTable.WithData(pterm.TableData{
 		{"LISTENER", "PORT", "STATUS", "STRENGTH"},
 		{"Cloud API", "443", pterm.LightYellow("STANDBY"), "ELITE"},
 		{"Malleable HTTP", "8080", pterm.LightGreen("LISTENING"), "HIGH"},
 		{"P2P Gossip", "9090", pterm.LightYellow("STANDBY"), "MESH"},
 		{"DNS Tunnel", "53", pterm.LightGreen("LISTENING"), "CRITICAL"},
-		{"NTP/ICMP", "RAW", pterm.LightYellow("STANDBY"), "FAILSAFE"},
+		{"ICMP Echo", "RAW", pterm.LightYellow("STANDBY"), "FAILSAFE"}, // Corrected to STANDBY until Tier 4 logic is verified
+		{"NTP Covert", "123", pterm.LightYellow("STANDBY"), "STEALTH"}, // Corrected to STANDBY
 	}).WithBoxed().Render()
 
-	pterm.Printf("\n%s Phase 1.6: Tactical Stack Online. All systems green.\n\n",
-		pterm.Cyan("»"))
+	pterm.Printf("\n%s Phase 2.2: Artifact Harvesting & Logic Verification Online.\n\n", pterm.Cyan("»"))
 }
 
 // LogHeartbeat provides consistent, colored feedback like VaporTrace

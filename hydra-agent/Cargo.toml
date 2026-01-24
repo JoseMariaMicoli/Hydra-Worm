@@ -20,3 +20,4 @@ pnet = "0.34.0"
 
 # Encoding for DNS Tunneling (Tier 6)
 base64 = "0.21"
+sysinfo = "0.37.2"
