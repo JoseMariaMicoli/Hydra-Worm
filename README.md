@@ -59,12 +59,15 @@
 | ❌ | 3.2 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
 | ❌ | 3.3 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
 | ❌ | 3.4 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
-| ❌ | 3.5 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
+| ❌ | 3.5 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | **NEW** |
+| ❌ | 3.6 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |
-| ❌ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO. | PLANNED |
-| ❌ | 4.2 | **Syscall Evasion:** Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
-| ❌ | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
-| ❌ | 4.4 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
+| ❌ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO usage. | PLANNED |
+| ❌ | 4.2 | **Phantom Memory:** Direct Syscalls & Process Injection (No-Disk). | **NEW** |
+| ❌ | 4.3 | **Polymorphic Engine:** Per-hop Signature Hash Mutation. | **NEW** |
+| ❌ | 4.4 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
+| ❌ | 4.5 | **Anti-Forensic Scorch:** Memory-wipe & Log cleaning on Kill-Switch. | **NEW** |
+| ❌ | 4.6 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
 
 ---
 
