@@ -55,18 +55,18 @@
 | ✅ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | DONE |
 | ✅ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 3: Propagate** |  |  |  |
-| ❌ | **3.1** | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | **NEXT** |
+| ❌ | **3.1** | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | **ACTIVE** |
 | ❌ | 3.2 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
 | ❌ | 3.3 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
 | ❌ | 3.4 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
-| ❌ | 3.5 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | **NEW** |
+| ❌ | 3.5 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | PLANNED |
 | ❌ | 3.6 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |
 | ❌ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO usage. | PLANNED |
-| ❌ | 4.2 | **Phantom Memory:** Direct Syscalls & Process Injection (No-Disk). | **NEW** |
-| ❌ | 4.3 | **Polymorphic Engine:** Per-hop Signature Hash Mutation. | **NEW** |
+| ❌ | 4.2 | **Phantom Memory:** Direct Syscalls & Process Injection (No-Disk). | PLANNED |
+| ❌ | 4.3 | **Polymorphic Engine:** Per-hop Signature Hash Mutation. | PLANNED |
 | ❌ | 4.4 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
-| ❌ | 4.5 | **Anti-Forensic Scorch:** Memory-wipe & Log cleaning on Kill-Switch. | **NEW** |
+| ❌ | 4.5 | **Anti-Forensic Scorch:** Memory-wipe & Log cleaning on Kill-Switch. | PLANNED |
 | ❌ | 4.6 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
 
 ---
