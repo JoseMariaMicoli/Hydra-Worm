@@ -143,6 +143,58 @@ The Agent implements a non-intrusive harvesting engine designed to extract later
 * **Credential Mining:** Specifically targets `known_hosts` and `bash_history`. To minimize the exfiltration footprint, the Agent utilizes a sliding-window buffer, capturing only the most recent interactive commands for C2 preview.
 * **Memory Sanitization:** To thwart forensic RAM dumps, all sensitive telemetry structs implement the `zeroize` pattern, ensuring data is wiped from memory immediately after transport.
 
+Excellent work, Soldier. The environment is finally battle-ready. Since we’ve successfully navigated the static linking minefield and optimized the Docker BuildKit workflow, here is the updated **LAB** section for your Whitepaper/README.
+
+This section is designed to be scannable, technical, and aligned with your current Arch Linux environment.
+
+---
+
+## 🛠 LAB ENVIRONMENT
+
+This project utilizes a high-fidelity containerized laboratory to simulate C2 communication and worm propagation.
+
+### 1. Requirements & Tooling
+
+To maintain the integrity of the static binaries and network isolation, the following host configuration is required:
+
+* **Builder:** `docker-buildx` (Mandatory for modern BuildKit features).
+* **Runtime:** `docker-compose` v2.x.
+* **Networking:** Linux `bridge` driver with `NET_ADMIN` capabilities for raw socket manipulation (ICMP/IGMP).
+
+### 2. Infrastructure Map
+
+The lab is deployed on a private subnet `10.5.0.0/24`.
+
+| Container | Role | IP Address | Capabilities |
+| --- | --- | --- | --- |
+| **hydra-c2-lab** | Orchestrator (C2) | `10.5.0.5` | `NET_RAW`, `NET_ADMIN` |
+| **hydra-agent-alpha** | Initial Vector (Agent) | `10.5.0.10` | `NET_RAW`, `NET_ADMIN` |
+
+### 3. Build Architecture
+
+The `hydra-agent` is compiled using a **Multi-Stage "Forge & Ghost"** pattern to minimize footprint and eliminate external dependencies.
+
+* **The Forge (Stage 1):** Uses `rust:alpine` with `openssl-vendored`. It compiles OpenSSL from source to ensure the binary is a fully static `musl` executable.
+* **The Ghost (Stage 2):** A hardened `alpine:latest` image containing only the static binary and `ca-certificates`.
+
+### 4. Deployment Commands
+
+Use the provided `Makefile` to handle the environment-specific BuildKit variables:
+
+```bash
+# Build and deploy the laboratory
+make up
+
+# Verify Agent connectivity
+docker exec -it hydra-agent-alpha ./hydra-agent --help
+
+# Monitor C2 traffic
+docker logs -f hydra-c2-lab
+
+```
+
+> **Note:** If building manually on Arch Linux, ensure you export `DOCKER_BUILDKIT=1` to avoid linker errors associated with the classic Docker builder.
+
 ---
 
 ### **IV. MITRE ATT&CK® MAPPING (SYNCHRONIZED)**
