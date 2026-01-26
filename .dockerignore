@@ -1,0 +1,4 @@
+target/
+hydra-agent/target/
+.git/
+*.pcapng

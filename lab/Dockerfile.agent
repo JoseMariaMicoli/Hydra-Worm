@@ -1,0 +1,22 @@
+# syntax=docker/dockerfile:1
+FROM rust:alpine AS builder
+
+RUN apk add --no-cache musl-dev gcc pkgconfig perl make build-base
+
+WORKDIR /app
+COPY . .
+
+# --- CRITICAL CHANGE HERE ---
+# If your folder is named 'hydra-agent', we must enter it
+WORKDIR /app/hydra-agent
+
+RUN cargo build --release
+
+FROM alpine:latest
+RUN apk add --no-cache ca-certificates
+WORKDIR /app
+
+# Update the COPY path to find the binary in the subfolder's target directory
+COPY --from=builder /app/hydra-agent/target/release/hydra-agent .
+
+ENTRYPOINT ["./hydra-agent"]

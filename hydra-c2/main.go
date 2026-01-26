@@ -226,23 +226,46 @@ func main() {
 			})
 		}
 	})
+	
+// --- TIER 1: Microsoft Graph (Cloud) Mock ---
+    // This simulates the Agent talking to a legitimate Microsoft API
+    r.POST("/v1.0/me/drive/root/children", func(c *gin.Context) {
+        var telemetry Telemetry
+        if err := c.ShouldBindJSON(&telemetry); err == nil {
+            LogHeartbeat("CLOUD (Tier 1)", telemetry)
+            c.JSON(http.StatusCreated, gin.H{
+                "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#items",
+                "id":              "01ABC-HYDRA-V1",
+            })
+        }
+    })
 
-	// 3. Tier 2: Standard Malleable HTTP Heartbeat
-	r.POST("/api/v1/heartbeat", func(c *gin.Context) {
-		var hb Telemetry
-		if err := c.ShouldBindJSON(&hb); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid telemetry"})
-			return
-		}
+    r.GET("/v1.0/me/messages", func(c *gin.Context) {
+        c.JSON(http.StatusOK, gin.H{
+            "value": []interface{}{
+                gin.H{
+                    "subject": "Mission Update",
+                    "body": gin.H{
+                        "content": "{\"status\":\"ok\",\"task\":\"SLEEP\",\"epoch\":1705920000}",
+                    },
+                },
+            },
+        })
+    })
 
-		LogHeartbeat("HTTP", hb)
-
-		c.JSON(http.StatusOK, gin.H{
-			"status": "acknowledged", 
-			"task":   "SLEEP", 
-			"epoch":  time.Now().Unix(),
-		})
-	})
+    // --- TIER 2: Malleable HTTP Heartbeat ---
+    // This matches the Agent's: http://localhost:8080/api/v1/heartbeat
+    r.POST("/api/v1/heartbeat", func(c *gin.Context) {
+        var telemetry Telemetry
+        if err := c.ShouldBindJSON(&telemetry); err == nil {
+            LogHeartbeat("MALLEABLE-HTTP (Tier 2)", telemetry)
+            c.JSON(http.StatusOK, gin.H{
+                "status": "ok",
+                "task":   "NOP",
+                "epoch":  time.Now().Unix(),
+            })
+        }
+    })
 
 	// 4. Start Full-Spectrum Background Listeners
 	go StartIcmpListener() 

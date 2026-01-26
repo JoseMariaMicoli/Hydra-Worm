@@ -1,0 +1,6 @@
+FROM alpine:latest
+RUN apk add --no-cache libc6-compat ca-certificates
+WORKDIR /app
+COPY ./hydra-c2 .
+# Raw socket permissions for ICMP
+ENTRYPOINT ["./hydra-c2"]

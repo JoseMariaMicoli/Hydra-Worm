@@ -1,0 +1,33 @@
+services:
+  orchestrator:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.c2
+    container_name: hydra-c2-lab
+    networks:
+      hydra_net:
+        ipv4_address: 10.5.0.5
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    tty: true
+    stdin_open: true
+
+  target-alpha:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.agent
+    container_name: hydra-agent-alpha
+    networks:
+      hydra_net:
+        ipv4_address: 10.5.0.10
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+
+networks:
+  hydra_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.5.0.0/24

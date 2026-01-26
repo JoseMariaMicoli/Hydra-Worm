@@ -377,10 +377,11 @@ impl Agent {
                     println!("[-] Failure ({}): {}", self.transport.get_name(), e);
                     self.failures += 1;
 
-                    // TACTICAL ESCALATION: If ICMP fails, or we hit 3 fails, mutate NOW.
+                    // TACTICAL BREAKOUT: Immediate mutation for ICMP or 3+ failures
                     if self.transport.get_name() == "ICMP-Failsafe" || self.failures >= 3 {
                         self.mutate();
-                        continue; // This breaks the sleep and moves to the next transport immediately.
+                        // Bypass jitter sleep and try the new transport immediately
+                        continue; 
                     }
                 }
             }
