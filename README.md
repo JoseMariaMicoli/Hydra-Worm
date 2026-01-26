@@ -46,23 +46,23 @@
 | ✅ | 1.2 | **Temporal Evasion:** NHPP jitter engine for non-linear beaconing. | DONE |
 | ✅ | 1.3 | **C2 Bootstrap:** Gin backend + **VaporTrace Tactical UI**. | DONE |
 | ✅ | 1.4 | **Malleable Profiles:** Header & JA3/S fingerprint randomization. | DONE |
-| ✅ | 1.5 | **Failsafe Stack:** DNS Tunneling (Case-Fixed) & ICMP/NTP Signaling. | DONE |
+| ✅ | 1.5 | **Failsafe Stack:** DNS Tunneling & ICMP/NTP Signaling. | DONE |
 | ✅ | 1.6 | **Sprint 1 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 2: Recon** |  |  |  |
 | ✅ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | DONE |
 | ✅ | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | DONE |
-| ✅ | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | DONE |
+| ✅ | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hooks. | DONE |
 | ✅ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | DONE |
 | ✅ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 3: Propagate** |  |  |  |
-| ❌ | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | **ACTIVE** |
+| ❌ | **3.0** | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | **NEXT** |
+| ❌ | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
 | ❌ | 3.2 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
 | ❌ | 3.3 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
-| ❌ | 3.4 | **Safety Throttle:** Rate-limiting and global "Kill-Switch" broadcast. | PLANNED |
+| ❌ | 3.4 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |
 | ❌ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO. | PLANNED |
 | ❌ | 4.2 | **Syscall Evasion:** Direct/Indirect Syscalls (bypassing `ntdll`). | PLANNED |
-| ❌ | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
 | ❌ | 4.3 | **Atomic Destruction:** Self-deletion and secure file wiping. | PLANNED |
 | ❌ | 4.4 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
 
