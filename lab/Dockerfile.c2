@@ -1,6 +1,22 @@
+# Use a lightweight base for the runtime
 FROM alpine:latest
+
+# Install necessary runtime libraries
 RUN apk add --no-cache libc6-compat ca-certificates
+
 WORKDIR /app
-COPY ./hydra-c2 .
-# Raw socket permissions for ICMP
+
+# The context is '..', so we copy the manual binary from the lab folder
+# matches: [xoce@darkarch] ~/Workspace/Hydra-Worm/lab/hydra-c2
+COPY lab/hydra-c2 .
+
+# Ensure the binary has execution permissions
+RUN chmod +x ./hydra-c2
+
+# Expose the tactical ports (HTTP, DNS, NTP)
+EXPOSE 8080/tcp
+EXPOSE 53/udp
+EXPOSE 123/udp
+
+# Raw socket permissions for ICMP/NTP
 ENTRYPOINT ["./hydra-c2"]

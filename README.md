@@ -52,10 +52,10 @@
 | ✅ | 2.1 | **Artifact Harvesting:** Parsing `known_hosts` and `bash_history`. | DONE |
 | ✅ | 2.2 | **Environment Context:** IMDSv2 (Cloud) & Container detection. | DONE |
 | ✅ | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hook detection. | DONE |
-| ❌ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | **ACTIVE** |
-| ❌ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | PLANNED |
+| ✅ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | DONE |
+| ✅ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 3: Propagate** |  |  |  |
-| ❌ | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
+| ❌ | 3.1 | **Credential Management:** Secure handling of NTLM/SSH tokens. | **ACTIVE** |
 | ❌ | 3.2 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
 | ❌ | 3.3 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
 | ❌ | 3.4 | **Safety Throttle:** Rate-limiting and global "Kill-Switch" broadcast. | PLANNED |

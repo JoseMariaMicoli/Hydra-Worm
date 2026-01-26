@@ -1,12 +1,13 @@
 module hydra-c2
 
-go 1.25.6
+go 1.24.0
 
 require (
 	github.com/chzyer/readline v1.5.1
 	github.com/gin-gonic/gin v1.11.0
 	github.com/miekg/dns v1.1.72
 	github.com/pterm/pterm v0.12.82
+	golang.org/x/net v0.48.0
 )
 
 require (
@@ -44,7 +45,6 @@ require (
 	golang.org/x/arch v0.20.0 // indirect
 	golang.org/x/crypto v0.46.0 // indirect
 	golang.org/x/mod v0.31.0 // indirect
-	golang.org/x/net v0.48.0 // indirect
 	golang.org/x/sync v0.19.0 // indirect
 	golang.org/x/sys v0.39.0 // indirect
 	golang.org/x/term v0.38.0 // indirect

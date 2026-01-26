@@ -1,0 +1,35 @@
+# Enter the Agent container
+docker exec -it hydra-agent-alpha sh
+
+# Block traffic to the Cloud-Mock endpoint specifically
+# This simulates the "Cloud" being unreachable
+iptables -A OUTPUT -p tcp --dport 8080 -m string --string "/api/v1/cloud-mock" --algo bm -j REJECT
+
+# Watch the logs to see the mutation
+# You should see: [!] Tier 1 Failure -> Rotating to Tier 2
+
+Tier,Protocol,Block Command (Force Mutation),Unblock Command (Restore Tier) 1 & 2,HTTP/S,
+
+docker exec -u 0 hydra-agent-alpha iptables -A OUTPUT -p tcp --dport 8080 -j REJECT
+
+docker exec -u 0 hydra-agent-alpha iptables -D OUTPUT -p tcp --dport 8080 -j REJECT
+
+3,P2P,(Internal logic: Mutation occurs after discovery failure),N/A
+4,ICMP,
+
+docker exec -u 0 hydra-agent-alpha iptables -A OUTPUT -p icmp -j REJECT
+
+docker exec -u 0 hydra-agent-alpha iptables -D OUTPUT -p icmp -j REJECT
+
+
+5,NTP,
+
+docker exec -u 0 hydra-agent-alpha iptables -A OUTPUT -p udp --dport 123 -j REJECT
+
+docker exec -u 0 hydra-agent-alpha iptables -D OUTPUT -p udp --dport 123 -j REJECT
+
+6,DNS,
+
+docker exec -u 0 hydra-agent-alpha iptables -A OUTPUT -p udp --dport 53 -j REJECT
+
+docker exec -u 0 hydra-agent-alpha iptables -D OUTPUT -p udp --dport 53 -j REJECT
