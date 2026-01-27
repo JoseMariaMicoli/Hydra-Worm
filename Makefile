@@ -9,74 +9,75 @@ C2_SOURCE    := ./main.go
 C2_BINARY    := ../lab/hydra-c2
 AGENT_BIN    := hydra-agent/target/x86_64-unknown-linux-musl/debug/hydra-agent
 
-# --- DYNAMIC RECON ---
-# Target service names exactly as defined in docker-compose.yml
-C2_NAME      := hydra-c2-lab
-AGENT_NAME   := hydra-agent-alpha
+# --- TARGETS ---
+C2_TARGET    := hydra-c2-lab
+ALPHA_TARGET := hydra-agent-alpha
+BRAVO_TARGET := hydra-agent-bravo
 
-# Dynamically find names if running, otherwise use hardcoded defaults
-C2_CONTAINER    := $(shell docker ps --filter "label=com.docker.compose.service=orchestrator" --format "{{.Names}}" | head -n 1)
-AGENT_CONTAINER := $(shell docker ps --filter "label=com.docker.compose.service=target-alpha" --format "{{.Names}}" | head -n 1)
+.PHONY: up down restart patch patch-agent patch-c2 attach-c2 attach-alpha shell block-alpha unblock-alpha help
 
-ifeq ($(C2_CONTAINER),)
-    C2_TARGET := $(C2_NAME)
-else
-    C2_TARGET := $(C2_CONTAINER)
-endif
-
-ifeq ($(AGENT_CONTAINER),)
-    AGENT_TARGET := $(AGENT_NAME)
-else
-    AGENT_TARGET := $(AGENT_CONTAINER)
-endif
-
-.PHONY: up down restart patch-agent patch-c2 logs-c2 logs-agent shell reset help
-
+# --- Lab Management ---
 up:
-	@echo "[*] Deploying Hydra Lab Infrastructure..."
-	export DOCKER_BUILDKIT=1 && docker compose -f $(COMPOSE_FILE) up --build -d
-	@$(MAKE) help
+	@echo "[*] Deploying 4-Machine Hydra Lab..."
+	docker compose -f $(COMPOSE_FILE) up -d
 
 down:
-	@echo "[!] Terminating Lab Infrastructure..."
+	@echo "[!] Tearing down Lab Infrastructure..."
 	docker compose -f $(COMPOSE_FILE) down
+
+restart:
+	docker compose -f $(COMPOSE_FILE) restart
+
+# --- Component Patching ---
+patch: patch-c2 patch-agent
 
 patch-agent:
 	@echo "[*] Rebuilding Rust Agent (musl target)..."
 	cd hydra-agent && cargo build --target x86_64-unknown-linux-musl
-	@echo "[*] Injecting binary into $(AGENT_TARGET)..."
-	docker cp $(AGENT_BIN) $(AGENT_TARGET):/app/hydra-agent
-	docker restart $(AGENT_TARGET)
-	@echo "[+] Agent $(AGENT_TARGET) re-engaged."
+	@echo "[*] Hot-swapping binaries in Alpha and Bravo..."
+	docker cp $(AGENT_BIN) $(ALPHA_TARGET):/app/hydra-agent
+	docker cp $(AGENT_BIN) $(BRAVO_TARGET):/app/hydra-agent
+	docker restart $(ALPHA_TARGET) $(BRAVO_TARGET)
 
 patch-c2:
-	@echo "[*] Syncing Go dependencies and building Orchestrator..."
-	cd $(C2_DIR) && go mod tidy && CGO_ENABLED=0 GOOS=linux go build -o $(C2_BINARY) $(C2_SOURCE)
-	@echo "[*] Injecting binary into $(C2_TARGET)..."
+	@echo "[*] Rebuilding Go Orchestrator..."
+	cd $(C2_DIR) && CGO_ENABLED=0 GOOS=linux go build -o $(C2_BINARY) $(C2_SOURCE)
 	docker cp lab/hydra-c2 $(C2_TARGET):/app/hydra-c2
 	docker restart $(C2_TARGET)
-	@echo "[+] Orchestrator $(C2_TARGET) patched successfully."
 
+# --- Traffic Jam: Tier Blocking ---
+# Usage: make block-alpha TIER=4
+block-alpha:
+	@$(MAKE) toggle-traffic TARGET=$(ALPHA_TARGET) ACTION=DROP
+
+unblock-alpha:
+	@$(MAKE) toggle-traffic TARGET=$(ALPHA_TARGET) ACTION=ACCEPT
+
+toggle-traffic:
+ifeq ($(TIER),1) # Tier 1: Cloud/HTTP
+	docker exec -u 0 $(TARGET) iptables -A OUTPUT -p tcp --dport 8080 -j $(ACTION)
+endif
+ifeq ($(TIER),4) # Tier 4: ICMP
+	docker exec -u 0 $(TARGET) iptables -A OUTPUT -p icmp -j $(ACTION)
+endif
+ifeq ($(TIER),5) # Tier 5: NTP
+	docker exec -u 0 $(TARGET) iptables -A OUTPUT -p udp --dport 123 -j $(ACTION)
+endif
+ifeq ($(TIER),6) # Tier 6: DNS
+	docker exec -u 0 $(TARGET) iptables -A OUTPUT -p udp --dport 53 -j $(ACTION)
+endif
+
+# --- Attachment & Logs ---
 shell:
-	@echo "[*] Attaching to C2... Use 'Ctrl-E then e' to detach safely."
+	@echo "[*] Attaching to C2 Console... (Ctrl-E then e to detach)"
 	docker attach --detach-keys="ctrl-e,e" $(C2_TARGET)
 
-logs-c2:
-	docker compose -f $(COMPOSE_FILE) logs -f orchestrator
-
-logs-agent:
-	docker logs -f $(AGENT_TARGET)
-
-reset: down
-	@echo "[!] Performing Hard Reset..."
-	docker system prune -f
-	$(MAKE) up
+attach-alpha:
+	docker logs -f $(ALPHA_TARGET)
 
 help:
-	@echo ""
-	@echo "--- HYDRA OPERATIONAL COMMANDS ---"
-	@echo "make up           - Start the lab and build images"
-	@echo "make patch-agent  - Hot-swap Rust binary"
-	@echo "make patch-c2     - Hot-swap Go binary"
-	@echo "make shell        - Attach to C2 Console"
-	@echo "----------------------------------"
+	@echo "Hydra Management Commands:"
+	@echo "  make up / down      - Manage lab lifecycle"
+	@echo "  make patch          - Rebuild and hot-swap all binaries"
+	@echo "  make block-alpha    - Block traffic (requires TIER=x)"
+	@echo "  make shell          - Attach to Orchestrator TUI"

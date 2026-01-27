@@ -6,22 +6,21 @@ services:
       context: ..
       dockerfile: lab/Dockerfile.c2
     container_name: hydra-c2-lab
-    # Essential for the tview TUI to function and stay alive
     tty: true
     stdin_open: true
     networks:
       hydra_net:
         ipv4_address: 10.5.0.5
-    # Required for ICMP (Tier 4) and DNS/NTP (Tier 6/5) binding
     cap_add:
       - NET_RAW
       - NET_ADMIN
     ports:
-      - "8080:8080" # HTTPS/Cloud Tiers
-      - "53:53/udp" # DNS Tier
-      - "123:123/udp" # NTP Tier
+      - "8080:8080"
+      - "53:53/udp"
+      - "123:123/udp"
     restart: on-failure
 
+  # AGENT 1: ALPHA
   target-alpha:
     build:
       context: ..
@@ -34,9 +33,37 @@ services:
       - NET_RAW
       - NET_ADMIN
     environment:
-      - AWS_ACCESS_KEY_ID=AKIA_HYDRA_TEST_DATA # Mock loot for Phase 3.3
+      - AGENT_ID=HYDRA-ALPHA
+      - AWS_ACCESS_KEY_ID=AKIA_HYDRA_TEST_DATA
     depends_on:
       - orchestrator
+
+  # AGENT 2: BRAVO (For Mesh Testing)
+  target-bravo:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.agent
+    container_name: hydra-agent-bravo
+    networks:
+      hydra_net:
+        ipv4_address: 10.5.0.11
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - AGENT_ID=HYDRA-BRAVO
+      - AZURE_CLIENT_ID=AZURE_HYDRA_TEST_DATA
+    depends_on:
+      - orchestrator
+
+  # TARGET 3: CHARLIE (Clean machine for Phase 4 Infection)
+  target-charlie:
+    image: alpine:latest
+    container_name: hydra-target-clean
+    command: tail -f /dev/null
+    networks:
+      hydra_net:
+        ipv4_address: 10.5.0.12
 
 networks:
   hydra_net:
