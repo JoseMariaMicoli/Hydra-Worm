@@ -54,13 +54,14 @@
 | ✅ | 2.3 | **EDR/XDR Fingerprinting:** Driver enumeration & API hooks. | DONE |
 | ✅ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | DONE |
 | ✅ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
-| **Sprint 3: Propagate** |  |  |  |
-| ✅ | **3.1** | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | DONE |
-| ❌ | 3.2 | **Credential Management:** Secure handling of NTLM/SSH tokens. | **ACTIVE** |
-| ❌ | 3.3 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
-| ❌ | 3.4 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
-| ❌ | 3.5 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | PLANNED |
-| ❌ | 3.6 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
+| **Sprint 3** |  | **Propagate & Command** |  |
+| ✅ | 3.1 | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | DONE |
+| ✅ | 3.2 | **Tactical Console (v4):** Cold-War TUI, µs Telemetry, & Docker Lab. | DONE |
+| ❌ | **3.3** | **Credential Management:** Secure handling of NTLM/SSH tokens. | **ACTIVE** |
+| ❌ | 3.4 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
+| ❌ | 3.5 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
+| ❌ | 3.6 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | PLANNED |
+| ❌ | 3.7 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |
 | ❌ | 4.1 | **LotL Persistence:** WMI Event Subs, Systemd, and GPO usage. | PLANNED |
 | ❌ | 4.2 | **Phantom Memory:** Direct Syscalls & Process Injection (No-Disk). | PLANNED |
@@ -69,7 +70,6 @@
 | ❌ | 4.5 | **Anti-Forensic Scorch:** Memory-wipe & Log cleaning on Kill-Switch. | PLANNED |
 | ❌ | 4.6 | **CLI Completion:** Final Shell polish and documentation audit. | PLANNED |
 
----
 
 ## II. THE 6-TIER MUTATION HIERARCHY
 
