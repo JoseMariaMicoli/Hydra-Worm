@@ -146,72 +146,114 @@ The Agent implements a non-intrusive harvesting engine designed to extract later
 * **Credential Mining:** Specifically targets `known_hosts` and `bash_history`. To minimize the exfiltration footprint, the Agent utilizes a sliding-window buffer, capturing only the most recent interactive commands for C2 preview.
 * **Memory Sanitization:** To thwart forensic RAM dumps, all sensitive telemetry structs implement the `zeroize` pattern, ensuring data is wiped from memory immediately after transport.
 
-Excellent work, Soldier. The environment is finally battle-ready. Since we’ve successfully navigated the static linking minefield and optimized the Docker BuildKit workflow, here is the updated **LAB** section for your Whitepaper/README.
-
-This section is designed to be scannable, technical, and aligned with your current Arch Linux environment.
+To finalize the **Phase 3 Research Documentation**, we will break down the technical architecture of these four pillars. These details should be integrated into your **III. TECHNICAL WHITE PAPER** section to preserve the R&D integrity of the project.
 
 ---
 
-## 🛠 LAB ENVIRONMENT
 
-This project utilizes a high-fidelity containerized laboratory to simulate C2 communication and worm propagation.
+#### **5 RCE Framework: Asynchronous Task Queuing**
+
+The Remote Code Execution (RCE) engine is designed as a **Pull-Model Architecture** to bypass stateful firewalls.
+
+* **Queue Mechanism**: The Orchestrator maintains a thread-safe `map[string]string` (AgentID -> Command). When an agent performs its NHPP-jittered heartbeat, the Orchestrator checks for a pending task.
+* **Payload Execution**: The Rust agent receives the tasking via the JSON `task` field. It spawns a detached subprocess using `std::process::Command`, capturing `stdout` and `stderr`.
+* **Response Encapsulation**: Results are prefixed with `OUT:` and re-sent in the next telemetry pulse. This ensures the C2 remains stateless and resistant to connection drops.
+
+#### **6 Tactical Console (v4): High-Concurrency TUI**
+
+The **VaporTrace Tactical UI** is built on the `tview` and `tcell` libraries, utilizing a multi-layered grid system.
+
+* **µs Telemetry Processing**: The UI calculates RTT (Round Trip Time) and Jitter at the microsecond level using `time.Since(arrival).Microseconds()`. This allows for real-time detection of network throttling or interception.
+* **Concurrency Model**: The Go backend uses `app.QueueUpdateDraw()`, which allows background network listeners (DNS, ICMP, NTP) to push updates to the UI thread safely without causing race conditions or flickering.
+* **Docker Lab Integration**: The console is environment-aware, mapping `AgentID` to internal container metadata for localized testing within the `10.5.0.0/24` subnet.
+
+#### **7 Credential Management: Token Isolation & Vaulting**
+
+This module focuses on the secure exfiltration of high-value identity artifacts discovered during Phase 2.
+
+* **Loot Ingestion Engine**: The Orchestrator identifies incoming telemetry prefixed with `LOOT:`. It parses the category (e.g., `SSH`, `AWS`, `NTLM`) and data payload.
+* **De-duplication Vault**: To prevent redundant data from cluttering the database, the C2 performs a cryptographic check (comparison of the data string) before committing to the `vault` slice.
+* **Zeroize Pattern**: On the Rust agent side, credentials extracted from `~/.ssh/known_hosts` or memory are stored in encrypted buffers and cleared using the `zeroize` crate immediately after the transport pulse is acknowledged.
+
+### **8 P2P Discovery: mDNS & UDP Gossip Mesh**
+
+The mesh capability enables "Island Hopping" in segmented networks where the primary C2 is unreachable.
+
+* **Discovery Protocol**: Agents utilize **mDNS (Multicast DNS)** on UDP/5353 to broadcast their presence locally using the `_hydra._tcp` service type.
+* **Relay Logic**: If `Agent-A` cannot reach the C2 but sees `Agent-B` (which has a Tier-1 Cloud link), `Agent-A` will encapsulate its telemetry into a POST request directed at `Agent-B:8080/relay`.
+* **Broadcast Propagation**: The `broadcast` verb allows the Orchestrator to push a single command to the entire mesh. Each node that receives the command from the C2 then "gossips" it to local peers, ensuring  distribution across the network.
+
+---
+
+## 🛠 LAB ENVIRONMENT (PHASE 3.5 REVISION)
+
+This project utilizes a high-fidelity containerized laboratory to simulate C2 communication, P2P mesh relay, and autonomous worm propagation.
 
 ### 1. Requirements & Tooling
 
-To maintain the integrity of the static binaries and network isolation, the following host configuration is required:
-
 * **Builder:** `docker-buildx` (Mandatory for modern BuildKit features).
 * **Runtime:** `docker-compose` v2.x.
-* **Networking:** Linux `bridge` driver with `NET_ADMIN` capabilities for raw socket manipulation (ICMP/IGMP).
+* **Networking:** Linux `bridge` driver with `NET_ADMIN` capabilities for raw socket manipulation.
+* **OS Specifics:** On Arch Linux, `DOCKER_BUILDKIT=1` is required for static `musl` compilation.
 
-### 2. Infrastructure Map
+### 2. Infrastructure Map (Multi-Node Mesh)
 
 The lab is deployed on a private subnet `10.5.0.0/24`.
 
-| Container | Role | IP Address | Capabilities |
-| --- | --- | --- | --- |
-| **hydra-c2-lab** | Orchestrator (C2) | `10.5.0.5` | `NET_RAW`, `NET_ADMIN` |
-| **hydra-agent-alpha** | Initial Vector (Agent) | `10.5.0.10` | `NET_RAW`, `NET_ADMIN` |
+| Container | Role | IP Address | Status | Capabilities |
+| --- | --- | --- | --- | --- |
+| **hydra-c2-lab** | Orchestrator (C2) | `10.5.0.5` | ONLINE | Ports 8080, 53, 123 |
+| **hydra-agent-alpha** | Patient Zero | `10.5.0.10` | **INFECTED** | mDNS, SSH Client |
+| **hydra-agent-bravo** | Relay Node | `10.5.0.11` | **INFECTED** | mDNS, P2P Relay |
+| **hydra-agent-gamma** | Target Node | `10.5.0.12` | **CLEAN** | SSH Server |
 
-### 3. Build Architecture
+### 3. Operational Command Reference
 
-The `hydra-agent` is compiled using a **Multi-Stage "Forge & Ghost"** pattern to minimize footprint and eliminate external dependencies.
+#### **A. Makefile (Host Automation)**
 
-* **The Forge (Stage 1):** Uses `rust:alpine` with `openssl-vendored`. It compiles OpenSSL from source to ensure the binary is a fully static `musl` executable.
-* **The Ghost (Stage 2):** A hardened `alpine:latest` image containing only the static binary and `ca-certificates`.
+| Command | Usage | Description |
+| --- | --- | --- |
+| `make up` | `make up` | Builds and deploys the 3-node laboratory and C2. |
+| `make down` | `make down` | Tears down the environment and wipes virtual networks. |
+| `make shell` | `make shell` | Enters the interactive VaporTrace TUI on the C2. |
+| `make patch-c2` | `make patch-c2` | Recompiles and restarts the C2 without resetting agents. |
+| `make logs` | `make logs` | Streams raw traffic logs (HTTP/DNS/ICMP) from the C2. |
+| `make infect-gamma` | `make infect-gamma` | Manual trigger for Phase 3.5 propagation test. |
 
-### 4. Deployment Commands
+#### **B. VaporTrace TUI (Orchestrator Shell)**
 
-Use the provided `Makefile` to handle the environment-specific BuildKit variables:
+| Tactical Verb | Syntax | Objective |
+| --- | --- | --- |
+| **exec** | `exec <ID> <CMD>` | Tasks a specific node with a shell command. |
+| **broadcast** | `broadcast <CMD>` | Tasks every node in the mesh simultaneously. |
+| **loot** | `loot` | Displays the vault of de-duplicated exfiltrated tokens. |
+| **tasks** | `tasks` | Displays the current pending task queue. |
+| **clear** | `clear` | Wipes the transmission window log. |
+| **exit** | `exit` | Gracefully terminates the C2 session. |
 
-```bash
-# Build and deploy the laboratory
-make up
+### 4. Build Architecture
 
-# Verify Agent connectivity
-docker exec -it hydra-agent-alpha ./hydra-agent --help
+The `hydra-agent` uses a **Multi-Stage "Forge & Ghost"** pattern:
 
-# Monitor C2 traffic
-docker logs -f hydra-c2-lab
-
-```
-
-> **Note:** If building manually on Arch Linux, ensure you export `DOCKER_BUILDKIT=1` to avoid linker errors associated with the classic Docker builder.
+* **The Forge (Stage 1):** `rust:alpine` compiles the static `x86_64-unknown-linux-musl` binary.
+* **The Ghost (Stage 2):** A hardened, minimal `alpine` image containing only the binary, mimicking a stealthy footprint.
 
 ---
 
-### **IV. MITRE ATT&CK® MAPPING (SYNCHRONIZED)**
+### **IV. MITRE ATT&CK® MAPPING (SYNCHRONIZED - PHASE 3.5)**
 
 | Tactic | Technique | ID | Hydra-Worm Implementation Detail |
 | --- | --- | --- | --- |
 | **Reconnaissance** | Search Victim-Owned Websites | T1594 | Probing Cloud IMDSv2 (169.254.169.254) for instance identity and roles. |
 | **Discovery** | System Information Discovery | T1082 | Extracting Hostname, OS Version, and Kernel details via `sysinfo`. |
-| **Discovery** | File and Directory Discovery | T1083 | Targeting specific paths for exfiltration: `~/.bash_history` and `~/.ssh/known_hosts`. |
-| **Discovery** | Virtualization/Sandbox Evasion | T1497 | Detection of `.dockerenv` to identify containerized constraints. |
-| **Defense Evasion** | Indicator Removal | T1070 | Implementing `zeroize` patterns for in-memory telemetry and sanitizing bash history strings. |
-| **Defense Evasion** | Protocol Impersonation | T1001.003 | Mimicking standard DNS traffic via manual RFC 1035 packet construction. |
-| **Command & Control** | Application Layer Protocol | T1071.004 | DNS Tunneling utilizing 60-character sub-domain labels for Base64 exfiltration. |
-| **Command & Control** | Traffic Signaling | T1543 | **NHPP-based** heartbeats using an exponential distribution to generate stochastic Jitter. |
+| **Discovery** | File and Directory Discovery | T1083 | Targeting specific paths: `~/.bash_history` and `~/.ssh/known_hosts`. |
+| **Discovery** | Remote System Discovery | T1018 | Utilizing **mDNS (UDP/5353)** and ARP table analysis to map local mesh peers. |
+| **Discovery** | Virtualization/Sandbox Evasion | T1497 | Detection of `/.dockerenv` to identify containerized constraints. |
+| **Defense Evasion** | Indicator Removal | T1070 | Implementing `zeroize` patterns and sanitizing `bash_history` strings. |
+| **Defense Evasion** | Protocol Impersonation | T1001.003 | Mimicking standard DNS/NTP/ICMP traffic via manual packet construction. |
+| **Lateral Movement** | Remote Services | T1021.004 | **(ACTIVE)** Propagation via SSH utilizing harvested credentials/keys. |
+| **Command & Control** | Application Layer Protocol | T1071.004 | DNS Tunneling utilizing 60-character labels for Base64 exfiltration. |
+| **Command & Control** | Dynamic Resolution | T1568 | NHPP-based heartbeat intervals using stochastic jitter to bypass frequency analysis. |
 
 ---
 
@@ -219,14 +261,14 @@ docker logs -f hydra-c2-lab
 
 #### **1. Detection & Analysis (ID.AN)**
 
-* **Network Artifacts:** Monitor for anomalous DNS query patterns. Specifically, look for high-frequency queries to a single root domain (e.g., `*.c2.hydra-worm.local`) where sub-domain labels appear to be high-entropy Base64.
-* **Length Analysis:** Alerts should trigger on DNS "Null" queries or "A" records where the total QNAME length approaches the **255-byte limit**.
-* **Endpoint Artifacts:** Audit for unusual process access to `.bash_history` or `.ssh/known_hosts` originating from non-interactive shells or unauthorized binaries.
+* **Network Artifacts:** Monitor for anomalous DNS query patterns (`*.c2.hydra-worm.local`). Watch for high-entropy subdomains and QNAME lengths approaching the **255-byte limit**.
+* **P2P Signaling:** Detect unauthorized **mDNS (5353)** or **UDP Gossip** traffic between internal nodes, signaling lateral discovery.
+* **Endpoint Artifacts:** Audit for non-interactive shells accessing `~/.ssh/known_hosts` or `/proc/net/arp`. Monitor for `nohup` execution of unknown binaries in `/tmp/`.
 
 #### **2. Containment, Eradication, & Recovery (PR.PT)**
 
-* **Network Containment:** Sinkhole the authoritative nameserver for the identified C2 root domain. Implement DNS Response Policy Zones (RPZ) to block the exfiltration path.
-* **Host Containment:** Isolate identified nodes. Because the Agent checks for `.dockerenv`, ensure containment does not inadvertently signal the Agent to hibernate or execute anti-forensic wipes.
-* **Eradication:** Scan for the unique "Hydra-Key" in memory or HTTP headers (if Tier 2 was utilized) to identify active process injections.
+* **Network Containment:** Sinkhole the C2 root domain and implement **DNS Response Policy Zones (RPZ)**. Block internal port **8080** and **5353** to break the P2P relay chain.
+* **Host Containment:** Isolate the "Patient Zero" (`10.5.0.10`). Be aware that killing the process may trigger the "Kill-Switch" anti-forensic routine (Phase 4.5).
+* **Eradication:** Identify and remove the static `musl` binary. Use `lsof` to find hidden listeners on non-standard ports used for Tier 4/5 signaling.
 
 ---
