@@ -1,22 +1,25 @@
-# Use a lightweight base for the runtime
-FROM alpine:latest
-
-# Install necessary runtime libraries
-RUN apk add --no-cache libc6-compat ca-certificates
-
+# syntax=docker/dockerfile:1
+# UPGRADED TO 1.24 to match go.mod requirements
+FROM golang:1.24-alpine AS builder
+RUN apk add --no-cache git
 WORKDIR /app
 
-# The context is '..', so we copy the manual binary from the lab folder
-# matches: [xoce@darkarch] ~/Workspace/Hydra-Worm/lab/hydra-c2
-COPY lab/hydra-c2 .
+# Copy the entire project context
+COPY . .
 
-# Ensure the binary has execution permissions
+# Move into the source directory and compile
+WORKDIR /app/hydra-c2
+# This will now work because Go 1.24 is running
+RUN go mod tidy && go mod download
+RUN CGO_ENABLED=0 GOOS=linux go build -o /app/hydra-c2-bin ./main.go
+
+# Runtime Stage
+FROM alpine:latest
+RUN apk add --no-cache libc6-compat ca-certificates
+WORKDIR /app
+
+COPY --from=builder /app/hydra-c2-bin ./hydra-c2
+
 RUN chmod +x ./hydra-c2
-
-# Expose the tactical ports (HTTP, DNS, NTP)
-EXPOSE 8080/tcp
-EXPOSE 53/udp
-EXPOSE 123/udp
-
-# Raw socket permissions for ICMP/NTP
+EXPOSE 8080/tcp 53/udp 123/udp
 ENTRYPOINT ["./hydra-c2"]

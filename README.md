@@ -55,8 +55,8 @@
 | ✅ | 2.4 | **Full-Spectrum C2:** Enabling Go listeners for all 6 transport tiers. | DONE |
 | ✅ | 2.5 | **Sprint 2 Finalize:** Autocomplete, README, and Integrity Commit. | DONE |
 | **Sprint 3: Propagate** |  |  |  |
-| ❌ | **3.1** | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | **ACTIVE** |
-| ❌ | 3.2 | **Credential Management:** Secure handling of NTLM/SSH tokens. | PLANNED |
+| ✅ | **3.1** | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | DONE |
+| ❌ | 3.2 | **Credential Management:** Secure handling of NTLM/SSH tokens. | **ACTIVE** |
 | ❌ | 3.3 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | PLANNED |
 | ❌ | 3.4 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
 | ❌ | 3.5 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | PLANNED |
