@@ -58,8 +58,8 @@
 | ✅ | 3.1 | **RCE Framework:** Task queuing and remote `sh`/`cmd` execution. | DONE |
 | ✅ | 3.2 | **Tactical Console (v4):** Cold-War TUI, µs Telemetry, & Docker Lab. | DONE |
 | ✅ | 3.3 | **Credential Management:** Secure handling of NTLM/SSH tokens. | DONE |
-| ❌ | **3.4** | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | **ACTIVE** |
-| ❌ | 3.5 | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | PLANNED |
+| ✅ | 3.4 | **P2P Discovery:** mDNS/UDP gossip mesh for peer discovery. | DONE |
+| ❌ | **3.5** | **Infection Engine:** Propagation via SMB, SSH, and WMI mocks. | **ACTIVE** |
 | ❌ | 3.6 | **Autonomous Lateral Movement:** Credential-driven "Self-Hopping". | PLANNED |
 | ❌ | 3.7 | **Safety Throttle:** Rate-limiting and global "Kill-Switch". | PLANNED |
 | **Sprint 4: DFIR** |  |  |  |

