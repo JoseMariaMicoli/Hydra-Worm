@@ -4,20 +4,21 @@ PROJECT_ROOT := $(shell pwd)
 COMPOSE_FILE := lab/docker-compose.yml
 
 # --- PATHS ---
-C2_DIR       := hydra-c2
-C2_SOURCE    := ./main.go
-C2_BINARY    := ../lab/hydra-c2
-AGENT_BIN    := hydra-agent/target/x86_64-unknown-linux-musl/debug/hydra-agent
+C2_DIR        := hydra-c2
+C2_SOURCE     := ./main.go
+C2_BINARY     := ../lab/hydra-c2
+C2_DIST_DIR   := $(C2_DIR)/bin
+AGENT_BIN     := hydra-agent/target/x86_64-unknown-linux-musl/debug/hydra-agent
 
 # --- TARGETS ---
-C2_TARGET    := hydra-c2-lab
-ALPHA_TARGET := hydra-agent-alpha
-BRAVO_TARGET := hydra-agent-bravo
+C2_TARGET     := hydra-c2-lab
+ALPHA_TARGET  := hydra-agent-alpha
+BRAVO_TARGET  := hydra-agent-bravo
 
-.PHONY: up down restart patch patch-agent patch-c2 attach-c2 attach-alpha shell block-alpha unblock-alpha help
+.PHONY: up down restart patch patch-agent patch-c2 attach-c2 attach-alpha shell block-alpha unblock-alpha help sync-dist
 
 # --- Lab Management ---
-up:
+up: patch-agent
 	@echo "[*] Deploying 4-Machine Hydra Lab..."
 	docker compose -f $(COMPOSE_FILE) up -d
 
@@ -31,9 +32,17 @@ restart:
 # --- Component Patching ---
 patch: patch-c2 patch-agent
 
+# New: Helper to sync agent to C2 distribution folder for Phase 3.5
+sync-dist:
+	@echo "[*] Synchronizing Agent to C2 Distribution..."
+	@mkdir -p $(C2_DIST_DIR)
+	cp $(AGENT_BIN) $(C2_DIST_DIR)/hydra-agent
+	@echo "[+] Agent binary synced to $(C2_DIST_DIR)/hydra-agent"
+
 patch-agent:
 	@echo "[*] Rebuilding Rust Agent (musl target)..."
 	cd hydra-agent && cargo build --target x86_64-unknown-linux-musl
+	@$(MAKE) sync-dist
 	@echo "[*] Hot-swapping binaries in Alpha and Bravo..."
 	docker cp $(AGENT_BIN) $(ALPHA_TARGET):/app/hydra-agent
 	docker cp $(AGENT_BIN) $(BRAVO_TARGET):/app/hydra-agent

