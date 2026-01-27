@@ -58,7 +58,8 @@ patch-c2:
 	@echo "[+] Orchestrator $(C2_TARGET) patched successfully."
 
 shell:
-	docker attach $(C2_TARGET)
+	@echo "[*] Attaching to C2... Use 'Ctrl-E then e' to detach safely."
+	docker attach --detach-keys="ctrl-e,e" $(C2_TARGET)
 
 logs-c2:
 	docker compose -f $(COMPOSE_FILE) logs -f orchestrator

