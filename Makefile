@@ -77,7 +77,10 @@ patch-c2:
 	cd $(C2_DIR) && CGO_ENABLED=0 GOOS=linux go build -o $(C2_BINARY) $(C2_SOURCE)
 	@C2_ID=$$(docker ps --format "{{.ID}} {{.Names}}" | grep -i "orchestrator" | awk '{print $$1}'); \
 	if [ ! -z "$$C2_ID" ]; then \
+		echo "[+] Syncing C2 and Distribution Assets to Orchestrator Container..."; \
 		docker cp lab/hydra-c2 $$C2_ID:/app/hydra-c2; \
+		docker exec $$C2_ID mkdir -p /app/bin; \
+		docker cp $(C2_DIST_DIR)/hydra-agent $$C2_ID:/app/bin/hydra-agent; \
 		docker restart $$C2_ID; \
 	fi
 
