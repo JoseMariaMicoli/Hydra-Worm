@@ -1,4 +1,3 @@
-version: '3.8'
 
 services:
   # TIER 0: ORCHESTRATOR
@@ -61,24 +60,16 @@ services:
     depends_on:
       - orchestrator
 
-  # TIER 3: GAMMA (Isolated Node)
-  target-gamma:
-    build:
-      context: ..
-      dockerfile: lab/Dockerfile.agent
-    container_name: HYDRA-TARGET-GAMMA
-    hostname: HYDRA-GAMMA
+  # TIER 3: CHARLIE (Pristine Target - No Agent)
+  target-charlie:
+    image: alpine:latest
+    container_name: HYDRA-TARGET-CHARLIE
+    hostname: HYDRA-CHARLIE
+    command: /bin/sh -c "apk add --no-cache iputils iproute2 && sleep infinity"
     networks:
       hydra_net:
-        ipv4_address: 10.5.0.12
-    cap_add:
-      - NET_RAW
-      - NET_ADMIN
-    environment:
-      - AGENT_ID=HYDRA-GAMMA
-      - C2_URL=http://10.5.0.5:8080
-    depends_on:
-      - orchestrator
+        ipv4_address: 10.5.0.13
+    restart: "no"
 
 networks:
   hydra_net:

