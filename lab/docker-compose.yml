@@ -1,11 +1,13 @@
 version: '3.8'
 
 services:
+  # TIER 0: ORCHESTRATOR
   orchestrator:
     build:
       context: ..
       dockerfile: lab/Dockerfile.c2
-    container_name: hydra-c2-lab
+    container_name: HYDRA-C2-ORCHESTRATOR
+    hostname: hydra-c2-lab
     tty: true
     stdin_open: true
     networks:
@@ -15,17 +17,18 @@ services:
       - NET_RAW
       - NET_ADMIN
     ports:
-      - "8080:8080"
-      - "53:53/udp"
-      - "123:123/udp"
+      - "8080:8080" # Tier 1 & 2 (Cloud/HTTPS)
+      - "53:53/udp"  # Tier 6 (DNS Tunneling)
+      - "123:123/udp" # Tier 5 (NTP Signaling)
     restart: on-failure
 
-  # AGENT 1: ALPHA
+  # TIER 1: ALPHA (Patient Zero / Cloud Bridge)
   target-alpha:
     build:
       context: ..
       dockerfile: lab/Dockerfile.agent
-    container_name: hydra-agent-alpha
+    container_name: HYDRA-TARGET-ALPHA
+    hostname: HYDRA-ALPHA
     networks:
       hydra_net:
         ipv4_address: 10.5.0.10
@@ -34,16 +37,18 @@ services:
       - NET_ADMIN
     environment:
       - AGENT_ID=HYDRA-ALPHA
+      - C2_URL=http://10.5.0.5:8080
       - AWS_ACCESS_KEY_ID=AKIA_HYDRA_TEST_DATA
     depends_on:
       - orchestrator
 
-  # AGENT 2: BRAVO (For Mesh Testing)
+  # TIER 2: BRAVO (Internal Pivot)
   target-bravo:
     build:
       context: ..
       dockerfile: lab/Dockerfile.agent
-    container_name: hydra-agent-bravo
+    container_name: HYDRA-TARGET-BRAVO
+    hostname: HYDRA-BRAVO
     networks:
       hydra_net:
         ipv4_address: 10.5.0.11
@@ -52,18 +57,28 @@ services:
       - NET_ADMIN
     environment:
       - AGENT_ID=HYDRA-BRAVO
-      - AZURE_CLIENT_ID=AZURE_HYDRA_TEST_DATA
+      - C2_URL=http://10.5.0.5:8080
     depends_on:
       - orchestrator
 
-  # TARGET 3: CHARLIE (Clean machine for Phase 4 Infection)
-  target-charlie:
-    image: alpine:latest
-    container_name: hydra-target-clean
-    command: tail -f /dev/null
+  # TIER 3: GAMMA (Isolated Node)
+  target-gamma:
+    build:
+      context: ..
+      dockerfile: lab/Dockerfile.agent
+    container_name: HYDRA-TARGET-GAMMA
+    hostname: HYDRA-GAMMA
     networks:
       hydra_net:
         ipv4_address: 10.5.0.12
+    cap_add:
+      - NET_RAW
+      - NET_ADMIN
+    environment:
+      - AGENT_ID=HYDRA-GAMMA
+      - C2_URL=http://10.5.0.5:8080
+    depends_on:
+      - orchestrator
 
 networks:
   hydra_net:
