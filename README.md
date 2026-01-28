@@ -146,42 +146,40 @@ The Agent implements a non-intrusive harvesting engine designed to extract later
 * **Credential Mining:** Specifically targets `known_hosts` and `bash_history`. To minimize the exfiltration footprint, the Agent utilizes a sliding-window buffer, capturing only the most recent interactive commands for C2 preview.
 * **Memory Sanitization:** To thwart forensic RAM dumps, all sensitive telemetry structs implement the `zeroize` pattern, ensuring data is wiped from memory immediately after transport.
 
-To finalize the **Phase 3 Research Documentation**, we will break down the technical architecture of these four pillars. These details should be integrated into your **III. TECHNICAL WHITE PAPER** section to preserve the R&D integrity of the project.
-
----
-
-
-#### **5 RCE Framework: Asynchronous Task Queuing**
+#### **5. RCE Framework: Asynchronous Task Queuing**
 
 The Remote Code Execution (RCE) engine is designed as a **Pull-Model Architecture** to bypass stateful firewalls.
 
 * **Queue Mechanism**: The Orchestrator maintains a thread-safe `map[string]string` (AgentID -> Command). When an agent performs its NHPP-jittered heartbeat, the Orchestrator checks for a pending task.
-* **Payload Execution**: The Rust agent receives the tasking via the JSON `task` field. It spawns a detached subprocess using `std::process::Command`, capturing `stdout` and `stderr`.
-* **Response Encapsulation**: Results are prefixed with `OUT:` and re-sent in the next telemetry pulse. This ensures the C2 remains stateless and resistant to connection drops.
+* **Payload Execution**: The Rust agent receives the tasking via the JSON `task` field and spawns a detached subprocess using `std::process::Command`, capturing `stdout` and `stderr`.
+* **Response Encapsulation**: Results are prefixed with `OUT:` and re-sent in the next telemetry pulse to ensure the C2 remains stateless.
 
-#### **6 Tactical Console (v4): High-Concurrency TUI**
+#### **6. Tactical Console (v4): High-Concurrency TUI**
 
-The **VaporTrace Tactical UI** is built on the `tview` and `tcell` libraries, utilizing a multi-layered grid system.
+The **VaporTrace Tactical UI** utilizes a multi-layered grid system built on `tview`.
 
-* **µs Telemetry Processing**: The UI calculates RTT (Round Trip Time) and Jitter at the microsecond level using `time.Since(arrival).Microseconds()`. This allows for real-time detection of network throttling or interception.
-* **Concurrency Model**: The Go backend uses `app.QueueUpdateDraw()`, which allows background network listeners (DNS, ICMP, NTP) to push updates to the UI thread safely without causing race conditions or flickering.
-* **Docker Lab Integration**: The console is environment-aware, mapping `AgentID` to internal container metadata for localized testing within the `10.5.0.0/24` subnet.
+* **µs Telemetry Processing**: The UI calculates RTT (Round Trip Time) and Jitter at the microsecond level.
+* **Concurrency Model**: The Go backend uses `app.QueueUpdateDraw()`, allowing background network listeners (DNS, ICMP, NTP) to push updates safely.
 
-#### **7 Credential Management: Token Isolation & Vaulting**
+#### **7. Credential Management: Token Isolation & Vaulting**
 
-This module focuses on the secure exfiltration of high-value identity artifacts discovered during Phase 2.
+This module focuses on secure exfiltration of identity artifacts discovered during Phase 2.
 
-* **Loot Ingestion Engine**: The Orchestrator identifies incoming telemetry prefixed with `LOOT:`. It parses the category (e.g., `SSH`, `AWS`, `NTLM`) and data payload.
-* **De-duplication Vault**: To prevent redundant data from cluttering the database, the C2 performs a cryptographic check (comparison of the data string) before committing to the `vault` slice.
-* **Zeroize Pattern**: On the Rust agent side, credentials extracted from `~/.ssh/known_hosts` or memory are stored in encrypted buffers and cleared using the `zeroize` crate immediately after the transport pulse is acknowledged.
+* **Loot Ingestion Engine**: The Orchestrator identifies incoming telemetry prefixed with `LOOT:` and parses the category (SSH, AWS, NTLM).
+* **De-duplication Vault**: The C2 performs a cryptographic check of the data string before committing to the `vault` slice.
+* **Zeroize Pattern**: The Rust agent utilizes the `zeroize` crate to clear sensitive telemetry from memory immediately after the transport pulse is acknowledged.
 
-### **8 P2P Discovery: mDNS & UDP Gossip Mesh**
+#### **8. P2P Discovery: mDNS & UDP Gossip Mesh**
 
-The mesh capability enables "Island Hopping" in segmented networks where the primary C2 is unreachable.
+The mesh capability enables "Island Hopping" in segmented networks.
 
-* **Discovery Protocol**: Agents utilize **mDNS (Multicast DNS)** on UDP/5353 to broadcast their presence locally using the `_hydra._tcp` service type.
-* **Relay Logic**: If `Agent-A` cannot reach the C2 but sees `Agent-B` (which has a Tier-1 Cloud link), `Agent-A` will encapsulate its telemetry into a POST request directed at `Agent-B:8080/relay`.
-* **Broadcast Propagation**: The `broadcast` verb allows the Orchestrator to push a single command to the entire mesh. Each node that receives the command from the C2 then "gossips" it to local peers, ensuring  distribution across the network.
+* **Discovery Protocol**: Agents utilize **mDNS (UDP/5353)** to broadcast presence locally using the `_hydra._tcp` service type.
+* **Relay Logic**: If a node cannot reach the C2, it encapsulates telemetry into a POST request directed at a local peer acting as a relay.
+
+#### **9. Layer-2 Adjacency & Parser Manipulation (New)**
+
+* **Kernel-Level ARP Scraping**: The Agent performs a low-profile sweep of the `/24` subnet using `saturate_arp_cache()` and parses `/proc/net/arp` for complete entries.
+* **Keyword Cloaking**: To bypass hardcoded C2 ingestion filters, the Agent replaces the reserved string `default` with the synonym `gw`. This ensures adjacency data is processed by the host-processing logic instead of being discarded or miscategorized.
 
 ---
 
@@ -240,7 +238,7 @@ The `hydra-agent` uses a **Multi-Stage "Forge & Ghost"** pattern:
 
 ---
 
-### **IV. MITRE ATT&CK® MAPPING (SYNCHRONIZED - PHASE 3.5)**
+### **IV. MITRE ATT&CK® MASTER MAPPING (PHASE 3.5 SYNC)**
 
 | Tactic | Technique | ID | Hydra-Worm Implementation Detail |
 | --- | --- | --- | --- |
@@ -248,10 +246,12 @@ The `hydra-agent` uses a **Multi-Stage "Forge & Ghost"** pattern:
 | **Discovery** | System Information Discovery | T1082 | Extracting Hostname, OS Version, and Kernel details via `sysinfo`. |
 | **Discovery** | File and Directory Discovery | T1083 | Targeting specific paths: `~/.bash_history` and `~/.ssh/known_hosts`. |
 | **Discovery** | Remote System Discovery | T1018 | Utilizing **mDNS (UDP/5353)** and ARP table analysis to map local mesh peers. |
+| **Discovery** | Network Topology Discovery | T1046 | Layer-2 adjacency mapping via automated `/proc/net/arp` scraping. |
 | **Discovery** | Virtualization/Sandbox Evasion | T1497 | Detection of `/.dockerenv` to identify containerized constraints. |
 | **Defense Evasion** | Indicator Removal | T1070 | Implementing `zeroize` patterns and sanitizing `bash_history` strings. |
 | **Defense Evasion** | Protocol Impersonation | T1001.003 | Mimicking standard DNS/NTP/ICMP traffic via manual packet construction. |
 | **Lateral Movement** | Remote Services | T1021.004 | **(ACTIVE)** Propagation via SSH utilizing harvested credentials/keys. |
+| **Command & Control** | Data Encoding | T1132.001 | **(BYPASS)** Keyword substitution (`default` -> `gw`) to manipulate Orchestrator-side parsing logic. |
 | **Command & Control** | Application Layer Protocol | T1071.004 | DNS Tunneling utilizing 60-character labels for Base64 exfiltration. |
 | **Command & Control** | Dynamic Resolution | T1568 | NHPP-based heartbeat intervals using stochastic jitter to bypass frequency analysis. |
 
